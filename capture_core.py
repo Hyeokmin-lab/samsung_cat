@@ -86,50 +86,32 @@ const sl=s.querySelector('#specLayer,[name="specLayer"]');
 if(sl) sl.style.display='none';
 const lb=s.querySelector('.spec-link-box');
 if(lb) lb.style.display='none';
-const tbl=s.querySelector('.spec-table');
-// 탭 목록 수집 — ul.spec-tabcontent-tab > li.tab-item
+// 탭 목록 수집
 const tabEls = s.querySelectorAll('ul.spec-tabcontent-tab li.tab-item');
 const tabs = Array.from(tabEls).map((li, i) => ({
     index: i,
     text:  li.textContent.trim()
 }));
-return {ok:true, len: tbl ? tbl.innerHTML.trim().length : 0, tabs: tabs};
+// 콘텐츠는 #specTabContent 기준
+const content = document.querySelector('#specTabContent');
+return {ok:true, len: content ? content.innerHTML.trim().length : 0, tabs: tabs};
 """
 
 JS_CLICK_SPEC_TAB_BY_INDEX = """
 (idx) => {
-    const s = document.querySelector('#compGoodsSpec');
-    if(!s) return {ok:false, reason:'no #compGoodsSpec'};
-    const tabs = s.querySelectorAll('ul.spec-tabcontent-tab li.tab-item');
+    const tabs = document.querySelectorAll('ul.spec-tabcontent-tab li.tab-item');
     if(idx >= tabs.length) return {ok:false, reason:'idx out of range', total:tabs.length};
 
     const li = tabs[idx];
-    const clickable = li.querySelector('a, button') || li;
 
-    // 방법1: jQuery trigger (Samsung 페이지는 jQuery 사용)
+    // jQuery trigger (Samsung 페이지 jQuery 이벤트 핸들러 직접 호출)
     if (window.jQuery) {
-        window.jQuery(clickable).trigger('click');
         window.jQuery(li).trigger('click');
+    } else {
+        li.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));
     }
 
-    // 방법2: MouseEvent dispatch (bubbling 포함)
-    const evt = new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        view: window
-    });
-    clickable.dispatchEvent(evt);
-
-    // 방법3: 네이티브 click
-    clickable.click();
-
-    // 현재 활성 탭 확인
-    const activeLi = s.querySelector('ul.spec-tabcontent-tab li.tab-item.active, ul.spec-tabcontent-tab li.tab-item.on, ul.spec-tabcontent-tab li.tab-item[aria-selected="true"]');
-    return {
-        ok: true,
-        clicked: li.textContent.trim(),
-        activeTab: activeLi ? activeLi.textContent.trim() : 'unknown'
-    };
+    return {ok:true, clicked: li.textContent.trim()};
 }
 """
 
@@ -251,40 +233,28 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 tab_idx  = tab["index"]
                 log(f"   탭 [{tab_idx+1}] {tab_name} 클릭...")
 
-                # 클릭 전 테이블 HTML 저장 (변경 감지용)
-                before_html = driver.execute_script("""
-                    const tbl = document.querySelector('#compGoodsSpec .spec-table');
-                    return tbl ? tbl.innerHTML.trim() : '';
-                """)
+                # 클릭 전 #specTabContent HTML 저장
+                before_html = driver.execute_script(
+                    "const el=document.querySelector('#specTabContent');"
+                    "return el ? el.innerHTML.trim() : '';"
+                )
 
                 # 탭 클릭
                 clicked = driver.execute_script(JS_CLICK_SPEC_TAB_BY_INDEX, tab_idx)
                 log(f"      클릭 결과: {clicked}")
                 time.sleep(0.5)
 
-                # 테이블 HTML이 실제로 바뀔 때까지 대기
+                # #specTabContent 내용이 바뀔 때까지 대기
                 for j in range(15):
                     time.sleep(0.7)
-                    state = driver.execute_script("""
-                        const s   = document.querySelector('#compGoodsSpec');
-                        const tbl = s ? s.querySelector('.spec-table') : null;
-                        const active = s ? s.querySelector(
-                            'ul.spec-tabcontent-tab li.tab-item.active,' +
-                            'ul.spec-tabcontent-tab li.tab-item.on,' +
-                            'ul.spec-tabcontent-tab li.tab-item[aria-selected="true"]'
-                        ) : null;
-                        return {
-                            html:      tbl  ? tbl.innerHTML.trim()       : '',
-                            activeTab: active ? active.textContent.trim() : ''
-                        };
-                    """)
-                    after_html  = state.get("html", "")
-                    active_tab  = state.get("activeTab", "")
-                    html_changed = after_html != before_html and len(after_html) > 100
-                    tab_matched  = tab_name in active_tab or active_tab in tab_name
-                    log(f"      대기 {j+1}회 activeTab={active_tab!r} html_changed={html_changed}")
-                    if html_changed or (tab_matched and len(after_html) > 100):
-                        log(f"      → 콘텐츠 변경 확인! activeTab={active_tab}")
+                    after_html = driver.execute_script(
+                        "const el=document.querySelector('#specTabContent');"
+                        "return el ? el.innerHTML.trim() : '';"
+                    )
+                    changed = after_html != before_html and len(after_html) > 100
+                    log(f"      대기 {j+1}회 before={len(before_html)} after={len(after_html)} changed={changed}")
+                    if changed:
+                        log(f"      → #specTabContent 변경 확인!")
                         break
                 time.sleep(0.3)
 
