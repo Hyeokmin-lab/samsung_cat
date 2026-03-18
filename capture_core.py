@@ -224,12 +224,21 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
             for tab in spec_tabs:
                 tab_name = tab["text"]
                 log(f"   탭 [{tab['index']+1}] {tab_name} 클릭...")
+
+                # 클릭 전 현재 내용 저장 (변경 감지용)
+                before = driver.execute_script(JS_SPEC_CHECK)
+                before_len = before.get("len", 0)
+
                 driver.execute_script(JS_CLICK_SPEC_TAB_BY_INDEX, tab["index"])
-                # AJAX 대기
-                for j in range(10):
-                    time.sleep(0.8)
+
+                # 내용이 실제로 바뀔 때까지 대기
+                for j in range(15):
+                    time.sleep(0.6)
                     chk = driver.execute_script(JS_SPEC_CHECK)
-                    if chk.get("len", 0) > 100:
+                    after_len = chk.get("len", 0)
+                    log(f"      대기 {j+1}회 before={before_len} after={after_len}")
+                    if after_len > 100 and after_len != before_len:
+                        log(f"      → 내용 변경 확인!")
                         break
                 time.sleep(0.3)
 

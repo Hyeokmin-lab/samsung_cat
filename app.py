@@ -134,6 +134,7 @@ def show_result(idx, url, result):
             )
 
     def chk_key(i): return f"chk_{idx}_{url[-20:]}_{i}"
+    zip_key = f"zip_{idx}_{url[-20:]}"
 
     if images:
         init_key = f"init_{idx}_{url[-20:]}"
@@ -141,6 +142,7 @@ def show_result(idx, url, result):
             for i in range(len(images)):
                 st.session_state[chk_key(i)] = False
             st.session_state[init_key] = True
+            st.session_state[zip_key] = None  # ZIP 캐시 초기화
 
         with st.expander(f"📷 대표이미지 선택 ({len(images)}장)", expanded=True):
             bc1, bc2, _ = st.columns([1, 1, 4])
@@ -148,22 +150,33 @@ def show_result(idx, url, result):
                 if st.button("전체 선택", key=f"all_{idx}_{url[-20:]}", use_container_width=True):
                     for i in range(len(images)):
                         st.session_state[chk_key(i)] = True
+                    st.session_state[zip_key] = None  # 선택 변경 시 ZIP 캐시 무효화
             with bc2:
                 if st.button("전체 해제", key=f"none_{idx}_{url[-20:]}", use_container_width=True):
                     for i in range(len(images)):
                         st.session_state[chk_key(i)] = False
+                    st.session_state[zip_key] = None  # 선택 변경 시 ZIP 캐시 무효화
 
             st.markdown("---")
             cols = st.columns(min(len(images), 4))
+            prev_vals = [st.session_state.get(chk_key(i), False) for i in range(len(images))]
             for i, img in enumerate(images):
                 with cols[i % 4]:
                     st.image(img["data"], use_column_width=True)
                     st.checkbox(img["filename"], key=chk_key(i))
+            # 체크박스 변경 감지 → ZIP 캐시 무효화
+            new_vals = [st.session_state.get(chk_key(i), False) for i in range(len(images))]
+            if new_vals != prev_vals:
+                st.session_state[zip_key] = None
 
     sel_images = [img for i, img in enumerate(images)
                   if st.session_state.get(chk_key(i), False)]
 
-    zip_data = make_zip(product_name, detail_png, sel_images, spec_png)
+    # ZIP을 캐시에 없을 때만 생성
+    if st.session_state.get(zip_key) is None:
+        st.session_state[zip_key] = make_zip(product_name, detail_png, sel_images, spec_png)
+    zip_data = st.session_state[zip_key]
+
     st.download_button(
         label=f"📦 {product_name}.zip — 상품상세 + 대표이미지 {len(sel_images)}장 ({len(zip_data)//1024} KB)",
         data=zip_data,
