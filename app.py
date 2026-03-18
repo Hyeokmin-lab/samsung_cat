@@ -100,95 +100,88 @@ if st.session_state.running:
     st.session_state.running = False
     st.rerun()
 
-# ── 결과 표시 ─────────────────────────────────────────────────
+# ── 결과 표시 (fragment 로 URL별 독립 렌더링) ───────────────
+@st.fragment
+def show_result(idx, url, result):
+    product_name = result.get("product_name", "")
+    detail_png   = result.get("detail_png")
+    images       = result.get("images", [])
+    error        = result.get("error")
+    spec_png     = result.get("spec_png")
+
+    st.markdown(f'<div class="result-header">✅ [{idx}] {product_name or url[:60]}</div>',
+                unsafe_allow_html=True)
+
+    if error:
+        st.error(f"❌ 캡처 실패: {error}")
+        return
+
+    st.success(f"대표이미지 {len(images)}장 · 상품상세 캡처 완료")
+
+    if detail_png:
+        with st.expander("🖼️ 상품상세 미리보기", expanded=(idx == 1)):
+            st.image(detail_png, use_column_width=True)
+
+    if spec_png:
+        with st.expander("📋 스펙 (탭 전체 합체)", expanded=True):
+            st.image(spec_png, use_column_width=True)
+            st.download_button(
+                label=f"⬇️ {product_name}_스펙.png 다운로드",
+                data=spec_png,
+                file_name=f"{product_name}_스펙.png",
+                mime="image/png",
+                key=f"spec_{idx}_{url[-20:]}",
+            )
+
+    def chk_key(i): return f"chk_{idx}_{url[-20:]}_{i}"
+
+    if images:
+        init_key = f"init_{idx}_{url[-20:]}"
+        if init_key not in st.session_state:
+            for i in range(len(images)):
+                st.session_state[chk_key(i)] = False
+            st.session_state[init_key] = True
+
+        with st.expander(f"📷 대표이미지 선택 ({len(images)}장)", expanded=True):
+            bc1, bc2, _ = st.columns([1, 1, 4])
+            with bc1:
+                if st.button("전체 선택", key=f"all_{idx}_{url[-20:]}", use_container_width=True):
+                    for i in range(len(images)):
+                        st.session_state[chk_key(i)] = True
+            with bc2:
+                if st.button("전체 해제", key=f"none_{idx}_{url[-20:]}", use_container_width=True):
+                    for i in range(len(images)):
+                        st.session_state[chk_key(i)] = False
+
+            st.markdown("---")
+            cols = st.columns(min(len(images), 4))
+            for i, img in enumerate(images):
+                with cols[i % 4]:
+                    st.image(img["data"], use_column_width=True)
+                    st.checkbox(img["filename"], key=chk_key(i))
+
+    sel_images = [img for i, img in enumerate(images)
+                  if st.session_state.get(chk_key(i), False)]
+
+    zip_data = make_zip(product_name, detail_png, sel_images, spec_png)
+    st.download_button(
+        label=f"📦 {product_name}.zip — 상품상세 + 대표이미지 {len(sel_images)}장 ({len(zip_data)//1024} KB)",
+        data=zip_data,
+        file_name=f"{product_name}.zip",
+        mime="application/zip",
+        key=f"dl_{idx}_{url[-20:]}",
+        use_container_width=True,
+    )
+    st.divider()
+
+
 if st.session_state.results:
     urls = st.session_state.get("urls_to_process", list(st.session_state.results.keys()))
 
     for idx, url in enumerate(urls, 1):
         if url not in st.session_state.results:
             continue
-
-        result       = st.session_state.results[url]
-        product_name = result.get("product_name", "")
-        detail_png   = result.get("detail_png")
-        images       = result.get("images", [])
-        error        = result.get("error")
-
-        st.markdown(f'<div class="result-header">✅ [{idx}] {product_name or url[:60]}</div>',
-                    unsafe_allow_html=True)
-
-        if error:
-            st.error(f"❌ 캡처 실패: {error}")
-            continue
-
-        st.success(f"대표이미지 {len(images)}장 · 상품상세 캡처 완료")
-
-        # 상품상세 미리보기
-        if detail_png:
-            with st.expander("🖼️ 상품상세 미리보기", expanded=(idx == 1)):
-                st.image(detail_png, use_column_width=True)
-
-        # 탭 스펙 미리보기 (탭이 2개 이상인 경우만 표시)
-        spec_png = result.get("spec_png")
-        if spec_png:
-            with st.expander("📋 스펙 (탭 전체 합체)", expanded=True):
-                st.image(spec_png, use_column_width=True)
-                st.download_button(
-                    label=f"⬇️ {product_name}_스펙.png 다운로드",
-                    data=spec_png,
-                    file_name=f"{product_name}_스펙.png",
-                    mime="image/png",
-                    key=f"spec_{idx}_{url[-20:]}",
-                )
-
-        # ── 대표이미지 선택 ──────────────────────────────────
-        # 체크박스 키를 직접 session_state 소스로 사용
-        # 전체선택/해제 버튼은 해당 키를 직접 설정 후 rerun
-        def chk_key(i, _idx=idx, _url=url): return f"chk_{_idx}_{_url[-20:]}_{i}"
-
-        if images:
-            # 초기값 설정 (최초 1회)
-            init_key = f"init_{idx}_{url[-20:]}"
-            if init_key not in st.session_state:
-                for i in range(len(images)):
-                    st.session_state[chk_key(i)] = False
-                st.session_state[init_key] = True
-
-            with st.expander(f"📷 대표이미지 선택 ({len(images)}장)", expanded=True):
-                bc1, bc2, _ = st.columns([1, 1, 4])
-                with bc1:
-                    if st.button("전체 선택", key=f"all_{idx}_{url[-20:]}", use_container_width=True):
-                        for i in range(len(images)):
-                            st.session_state[chk_key(i)] = True
-                with bc2:
-                    if st.button("전체 해제", key=f"none_{idx}_{url[-20:]}", use_container_width=True):
-                        for i in range(len(images)):
-                            st.session_state[chk_key(i)] = False
-
-                st.markdown("---")
-                cols = st.columns(min(len(images), 4))
-                for i, img in enumerate(images):
-                    with cols[i % 4]:
-                        st.image(img["data"], use_column_width=True)
-                        # key만 지정 — value 미지정으로 session_state가 직접 관리
-                        st.checkbox(img["filename"], key=chk_key(i))
-
-        # 선택된 이미지만 포함
-        sel_images = [img for i, img in enumerate(images)
-                      if st.session_state.get(chk_key(i), False)]
-
-        # spec_png 도 ZIP에 포함
-        spec_png = result.get("spec_png")
-        zip_data = make_zip(product_name, detail_png, sel_images, spec_png)
-        st.download_button(
-            label=f"📦 {product_name}.zip — 상품상세 + 대표이미지 {len(sel_images)}장 ({len(zip_data)//1024} KB)",
-            data=zip_data,
-            file_name=f"{product_name}.zip",
-            mime="application/zip",
-            key=f"dl_{idx}_{url[-20:]}",
-            use_container_width=True,
-        )
-        st.divider()
+        show_result(idx, url, st.session_state.results[url])
 
     # 전체 합치기 ZIP
     success = [r for r in st.session_state.results.values()
