@@ -90,13 +90,13 @@ const sl=s.querySelector('#specLayer,[name="specLayer"]');
 if(sl) sl.style.display='none';
 const lb=s.querySelector('.spec-link-box');
 if(lb) lb.style.display='none';
-// 탭 목록 수집
-const tabEls = s.querySelectorAll('ul.spec-tabcontent-tab li.tab-item');
+// 탭 목록 수집 — .spec-tabcontent-wrap 안의 li.tab-item
+const tabEls = s.querySelectorAll('.spec-tabcontent-wrap li.tab-item');
 const tabs = Array.from(tabEls).map((li, i) => ({
     index: i,
     text:  li.textContent.trim()
 }));
-// 콘텐츠는 #specTabContent 기준
+// 콘텐츠 길이 — #specTabContent 기준
 const content = document.querySelector('#specTabContent');
 return {ok:true, len: content ? content.innerHTML.trim().length : 0, tabs: tabs};
 """
@@ -237,16 +237,16 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 tab_idx  = tab["index"]
                 log(f"   탭 [{tab_idx+1}] {tab_name} 클릭...")
 
-                # 클릭 전 #specContents HTML 저장 (실제 콘텐츠 영역)
+                # 클릭 전 #specTabContent HTML 저장 (탭 전환 시 교체되는 영역)
                 before_html = driver.execute_script(
-                    "const el=document.querySelector('#specContents');"
+                    "const el=document.querySelector('#specTabContent');"
                     "return el ? el.innerHTML.trim() : '';"
                 )
 
                 # Selenium WebElement 직접 클릭
                 try:
                     tab_els = driver.find_elements(By.CSS_SELECTOR,
-                                                   "ul.spec-tabcontent-tab li.tab-item")
+                                                   ".spec-tabcontent-wrap li.tab-item")
                     if tab_idx < len(tab_els):
                         el = tab_els[tab_idx]
                         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
@@ -262,38 +262,37 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
 
                 time.sleep(0.5)
 
-                # #specContents 내용이 바뀔 때까지 대기
+                # #specTabContent 내용이 바뀔 때까지 대기
                 for j in range(15):
                     time.sleep(0.7)
                     after_html = driver.execute_script(
-                        "const el=document.querySelector('#specContents');"
+                        "const el=document.querySelector('#specTabContent');"
                         "return el ? el.innerHTML.trim() : '';"
                     )
                     changed = after_html != before_html and len(after_html) > 100
                     log(f"      대기 {j+1}회 before={len(before_html)} after={len(after_html)} changed={changed}")
                     if changed:
-                        log(f"      → #specContents 변경 확인!")
+                        log(f"      → #specTabContent 변경 확인!")
                         break
                 time.sleep(0.3)
 
                 # 탭 헤더(ul.spec-tabcontent-tab) + 콘텐츠(#specContents) 영역 캡처
                 spec_box = driver.execute_script("""
-                    const tab_ul = document.querySelector('ul.spec-tabcontent-tab');
-                    const content = document.querySelector('#specContents');
-                    if(!tab_ul || !content) {
+                    const wrap   = document.querySelector('.spec-tabcontent-wrap');
+                    const content = document.querySelector('#specTabContent');
+                    if(!wrap || !content) {
                         const fb = document.querySelector('#compGoodsSpec');
                         if(!fb) return null;
                         const r = fb.getBoundingClientRect();
                         return {top: Math.round(r.top+window.scrollY), left: Math.round(r.left),
                                 width: Math.round(r.width), height: Math.max(Math.round(r.height), fb.scrollHeight)};
                     }
-                    const r1 = tab_ul.getBoundingClientRect();
+                    const r1 = wrap.getBoundingClientRect();
                     const r2 = content.getBoundingClientRect();
-                    const top  = Math.round(Math.min(r1.top, r2.top) + window.scrollY);
-                    const left = Math.round(Math.min(r1.left, r2.left));
+                    const top    = Math.round(r1.top + window.scrollY);
+                    const left   = Math.round(Math.min(r1.left, r2.left));
                     const right  = Math.round(Math.max(r1.right, r2.right));
-                    const bottom = Math.round(Math.max(r2.top + window.scrollY + Math.max(r2.height, content.scrollHeight),
-                                                       r1.top + window.scrollY + r1.height));
+                    const bottom = Math.round(r2.top + window.scrollY + Math.max(r2.height, content.scrollHeight));
                     return {top: top, left: left, width: right - left, height: bottom - top};
                 """)
                 if spec_box and spec_box["height"] > 0:
