@@ -147,20 +147,33 @@ if st.session_state.results:
                 st.image(detail_png, use_column_width=True)
 
         # 대표이미지 선택 + 미리보기
-        sel_key = f"sel_{idx}_{url[-20:]}"
+        sel_key   = f"sel_{idx}_{url[-20:]}"
+        force_key = f"force_{idx}_{url[-20:]}"
+
+        # 초기화
+        if sel_key not in st.session_state:
+            st.session_state[sel_key] = {i: False for i in range(len(images))}
+
+        # 전체 선택/해제 버튼 — force 플래그로 처리 (rerun 불필요)
+        if st.session_state.get(force_key) == "all":
+            for i in range(len(images)):
+                st.session_state[sel_key][i] = True
+            del st.session_state[force_key]
+        elif st.session_state.get(force_key) == "none":
+            for i in range(len(images)):
+                st.session_state[sel_key][i] = False
+            del st.session_state[force_key]
+
         if images:
             with st.expander(f"📷 대표이미지 선택 ({len(images)}장)", expanded=True):
-                if sel_key not in st.session_state:
-                    st.session_state[sel_key] = [True] * len(images)
-
                 bc1, bc2, _ = st.columns([1, 1, 4])
                 with bc1:
                     if st.button("전체 선택", key=f"all_{idx}_{url[-20:]}", use_container_width=True):
-                        st.session_state[sel_key] = [True] * len(images)
+                        st.session_state[force_key] = "all"
                         st.rerun()
                 with bc2:
                     if st.button("전체 해제", key=f"none_{idx}_{url[-20:]}", use_container_width=True):
-                        st.session_state[sel_key] = [False] * len(images)
+                        st.session_state[force_key] = "none"
                         st.rerun()
 
                 st.markdown("---")
@@ -168,15 +181,14 @@ if st.session_state.results:
                 for i, img in enumerate(images):
                     with cols[i % 4]:
                         st.image(img["data"], use_column_width=True)
-                        checked = st.checkbox(
+                        st.session_state[sel_key][i] = st.checkbox(
                             img["filename"],
-                            value=st.session_state[sel_key][i],
+                            value=st.session_state[sel_key].get(i, False),
                             key=f"chk_{idx}_{url[-20:]}_{i}",
                         )
-                        st.session_state[sel_key][i] = checked
 
         # 선택된 이미지만 ZIP
-        sel_images = [img for i, img in enumerate(images) if st.session_state.get(sel_key, [True]*len(images))[i]] if images else []
+        sel_images = [img for i, img in enumerate(images) if st.session_state.get(sel_key, {}).get(i, False)] if images else []
         zip_data = make_zip(product_name, detail_png, sel_images)
         st.download_button(
             label=f"📦 {product_name}.zip — 상품상세 + 대표이미지 {len(sel_images)}장 ({len(zip_data)//1024} KB)",
