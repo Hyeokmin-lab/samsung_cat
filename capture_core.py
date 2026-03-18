@@ -12,6 +12,10 @@ from PIL import Image as PILImage
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
 
 WIDTH    = 768
 WAIT_SEC = 3
@@ -239,9 +243,24 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                     "return el ? el.innerHTML.trim() : '';"
                 )
 
-                # 탭 클릭
-                clicked = driver.execute_script(JS_CLICK_SPEC_TAB_BY_INDEX, tab_idx)
-                log(f"      클릭 결과: {clicked}")
+                # Selenium WebElement 직접 클릭 (JS click 아님)
+                try:
+                    tab_els = driver.find_elements(By.CSS_SELECTOR,
+                                                   "ul.spec-tabcontent-tab li.tab-item")
+                    if tab_idx < len(tab_els):
+                        el = tab_els[tab_idx]
+                        # 뷰포트 안으로 스크롤 후 클릭
+                        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+                        time.sleep(0.3)
+                        ActionChains(driver).move_to_element(el).click().perform()
+                        log(f"      Selenium 클릭 성공: {el.text.strip()}")
+                    else:
+                        log(f"      탭 요소 없음 (idx={tab_idx}, total={len(tab_els)})")
+                        continue
+                except Exception as e:
+                    log(f"      클릭 오류: {e}")
+                    continue
+
                 time.sleep(0.5)
 
                 # #specTabContent 내용이 바뀔 때까지 대기
