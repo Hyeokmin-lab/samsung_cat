@@ -1,7 +1,7 @@
 import io
 import zipfile
 import streamlit as st
-from capture_core import run_capture, make_zip
+from capture_core import run_capture, run_capture_multi, make_zip
 
 st.set_page_config(page_title="Samsung 상품 캡처", page_icon="📸", layout="centered")
 
@@ -73,37 +73,32 @@ if submitted and not st.session_state.running:
         st.session_state.wait_sec         = wait_sec
         st.rerun()
 
-# ── URL 순차 처리 ─────────────────────────────────────────────
+# ── 전체 URL 일괄 처리 (Chrome 1회 시작) ────────────────────
 if st.session_state.running:
     import capture_core
     capture_core.WIDTH    = st.session_state.get("width", 768)
     capture_core.WAIT_SEC = st.session_state.get("wait_sec", 3)
 
-    urls    = st.session_state.get("urls_to_process", [])
-    pending = [u for u in urls if u not in st.session_state.results]
+    urls = st.session_state.get("urls_to_process", [])
 
-    if pending:
-        url = pending[0]
-        idx = urls.index(url) + 1
-        st.markdown(f'<div class="result-header">🔄 [{idx}/{len(urls)}] 캡처 중... {url[:70]}</div>',
-                    unsafe_allow_html=True)
-        log_box = st.empty()
-        logs    = []
+    st.markdown('<div class="result-header">🔄 캡처 진행 중...</div>',
+                unsafe_allow_html=True)
+    log_box = st.empty()
+    logs    = []
 
-        def log(msg):
-            logs.append(msg)
-            log_box.markdown('<div class="log-box">' + "\n".join(logs[-25:]) + '</div>',
-                             unsafe_allow_html=True)
+    def log(msg):
+        logs.append(msg)
+        log_box.markdown('<div class="log-box">' + "\n".join(logs[-30:]) + '</div>',
+                         unsafe_allow_html=True)
 
-        with st.spinner(f"캡처 중 ({idx}/{len(urls)})..."):
-            result = run_capture(url, log=log)
+    with st.spinner(f"전체 {len(urls)}개 URL 캡처 중... (Chrome 1회 시작)"):
+        results_list = run_capture_multi(urls, log=log)
 
+    for url, result in zip(urls, results_list):
         st.session_state.results[url] = result
-        if len(st.session_state.results) >= len(urls):
-            st.session_state.running = False
-        st.rerun()
-    else:
-        st.session_state.running = False
+
+    st.session_state.running = False
+    st.rerun()
 
 # ── 결과 표시 ─────────────────────────────────────────────────
 if st.session_state.results:
@@ -132,6 +127,19 @@ if st.session_state.results:
         if detail_png:
             with st.expander("🖼️ 상품상세 미리보기", expanded=(idx == 1)):
                 st.image(detail_png, use_column_width=True)
+
+        # 탭 스펙 미리보기 (탭이 2개 이상인 경우만 표시)
+        spec_png = result.get("spec_png")
+        if spec_png:
+            with st.expander("📋 스펙 (탭 전체 합체)", expanded=True):
+                st.image(spec_png, use_column_width=True)
+                st.download_button(
+                    label=f"⬇️ {product_name}_스펙.png 다운로드",
+                    data=spec_png,
+                    file_name=f"{product_name}_스펙.png",
+                    mime="image/png",
+                    key=f"spec_{idx}_{url[-20:]}",
+                )
 
         # ── 대표이미지 선택 ──────────────────────────────────
         # 체크박스 키를 직접 session_state 소스로 사용
@@ -169,7 +177,9 @@ if st.session_state.results:
         sel_images = [img for i, img in enumerate(images)
                       if st.session_state.get(chk_key(i), False)]
 
-        zip_data = make_zip(product_name, detail_png, sel_images)
+        # spec_png 도 ZIP에 포함
+        spec_png = result.get("spec_png")
+        zip_data = make_zip(product_name, detail_png, sel_images, spec_png)
         st.download_button(
             label=f"📦 {product_name}.zip — 상품상세 + 대표이미지 {len(sel_images)}장 ({len(zip_data)//1024} KB)",
             data=zip_data,

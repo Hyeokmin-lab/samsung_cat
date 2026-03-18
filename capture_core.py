@@ -1,5 +1,6 @@
 """
-Samsung 상품 페이지 캡처 핵심 로직 (selenium — greenlet 불필요)
+Samsung 상품 페이지 캡처 핵심 로직 (selenium)
+Chrome 드라이버를 재사용해서 2번째, 3번째 URL도 빠르게 처리
 """
 
 import io
@@ -11,9 +12,8 @@ from PIL import Image as PILImage
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
 
-WIDTH    = 1000
+WIDTH    = 768
 WAIT_SEC = 3
 
 FAQ_FULL_SELECTORS = [
@@ -25,32 +25,43 @@ FAQ_FULL_SELECTORS = [
 ]
 
 JS_EXPAND_FAQ = """
-const section = document.querySelector('section.faqWrap');
-if (!section) return {ok:false};
+const sections = document.querySelectorAll('section.faqWrap');
+if (!sections.length) return {ok:false, count:0};
 const SKIP = new Set(['SCRIPT','STYLE','NOSCRIPT','META','LINK','HEAD']);
 let opened = 0;
+
+// 떠있는 UI 요소 숨기기
 ['[class*="chat"]','[class*="float"]','.layer-counsel','.counsel-btn','.sticky'].forEach(sel => {
     document.querySelectorAll(sel).forEach(el => { if (!SKIP.has(el.tagName)) el.style.display='none'; });
 });
-section.querySelectorAll('.faqTitle').forEach(t => {
-    t.classList.add('_actv');
-    t.setAttribute('aria-expanded','true');
-    const a = t.nextElementSibling;
-    if (a && !SKIP.has(a.tagName)) {
-        a.style.cssText='display:block!important;height:auto!important;max-height:none!important;overflow:visible!important;visibility:visible!important;opacity:1!important;';
-        opened++;
-    }
-});
-if (opened === 0) {
-    section.querySelectorAll('li').forEach(li => {
-        li.classList.add('on','active','open');
-        const ch=[...li.children].filter(c=>!SKIP.has(c.tagName));
-        if (ch.length>=2) { for(let i=1;i<ch.length;i++){ch[i].style.display='block';ch[i].style.height='auto';ch[i].style.overflow='visible';opened++;} }
+
+// 모든 faqWrap 섹션 처리
+sections.forEach(section => {
+    section.querySelectorAll('.faqTitle').forEach(t => {
+        t.classList.add('_actv');
+        t.setAttribute('aria-expanded','true');
+        const a = t.nextElementSibling;
+        if (a && !SKIP.has(a.tagName)) {
+            a.style.cssText='display:block!important;height:auto!important;max-height:none!important;overflow:visible!important;visibility:visible!important;opacity:1!important;';
+            opened++;
+        }
     });
-}
-const seen=new Set();
-section.querySelectorAll('h2,h3').forEach(h=>{const t=h.textContent.trim();if(seen.has(t))h.style.display='none';else seen.add(t);});
-return {ok:true, opened:opened};
+
+    // faqTitle이 없으면 li 구조로 시도
+    if (section.querySelectorAll('.faqTitle').length === 0) {
+        section.querySelectorAll('li').forEach(li => {
+            li.classList.add('on','active','open');
+            const ch=[...li.children].filter(c=>!SKIP.has(c.tagName));
+            if (ch.length>=2) { for(let i=1;i<ch.length;i++){ch[i].style.display='block';ch[i].style.height='auto';ch[i].style.overflow='visible';opened++;} }
+        });
+    }
+
+    // 중복 제목 제거
+    const seen=new Set();
+    section.querySelectorAll('h2,h3').forEach(h=>{const t=h.textContent.trim();if(seen.has(t))h.style.display='none';else seen.add(t);});
+});
+
+return {ok:true, sections:sections.length, opened:opened};
 """
 
 JS_CLICK_SPEC_TAB = """
@@ -70,13 +81,31 @@ return {ok:true,action:'already open'};
 
 JS_SPEC_CHECK = """
 const s=document.querySelector('#compGoodsSpec');
-if(!s) return {ok:false,len:0};
+if(!s) return {ok:false,len:0,tabs:[]};
 const sl=s.querySelector('#specLayer,[name="specLayer"]');
 if(sl) sl.style.display='none';
 const lb=s.querySelector('.spec-link-box');
 if(lb) lb.style.display='none';
 const tbl=s.querySelector('.spec-table');
-return {ok:true, len: tbl ? tbl.innerHTML.trim().length : 0};
+// 탭 목록 수집
+const tabEls = s.querySelectorAll('a[name^="spec-tab"]');
+const tabs = Array.from(tabEls).map((a,i) => ({
+    index: i,
+    text:  a.textContent.trim(),
+    ariaControls: a.getAttribute('aria-controls') || ''
+}));
+return {ok:true, len: tbl ? tbl.innerHTML.trim().length : 0, tabs: tabs};
+"""
+
+JS_CLICK_SPEC_TAB_BY_INDEX = """
+(idx) => {
+    const s = document.querySelector('#compGoodsSpec');
+    if(!s) return false;
+    const tabs = s.querySelectorAll('a[name^="spec-tab"]');
+    if(idx >= tabs.length) return false;
+    tabs[idx].click();
+    return tabs[idx].textContent.trim();
+}
 """
 
 
@@ -85,6 +114,7 @@ def sanitize(name: str) -> str:
 
 
 def make_driver() -> webdriver.Chrome:
+    """Chrome 드라이버 생성 — 빠른 시작 옵션 포함"""
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
@@ -92,37 +122,48 @@ def make_driver() -> webdriver.Chrome:
     opts.add_argument("--disable-gpu")
     opts.add_argument(f"--window-size={WIDTH},900")
     opts.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
-    # Streamlit Cloud / Docker 환경 대응
+    # 불필요한 기능 비활성화 → 시작 속도 개선
+    opts.add_argument("--disable-extensions")
+    opts.add_argument("--disable-plugins")
+    opts.add_argument("--disable-background-networking")
+    opts.add_argument("--disable-default-apps")
+    opts.add_argument("--disable-sync")
+    opts.add_argument("--no-first-run")
+    opts.add_argument("--disable-translate")
+    opts.add_argument("--disable-infobars")
+    opts.add_argument("--mute-audio")
+
     import shutil
-    chrome_bin = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+    chrome_bin = (shutil.which("chromium") or shutil.which("chromium-browser")
+                  or shutil.which("google-chrome"))
     if chrome_bin:
         opts.binary_location = chrome_bin
     try:
         driver = webdriver.Chrome(options=opts)
     except Exception:
-        # chromedriver 경로 직접 지정
-        driver = webdriver.Chrome(
-            service=Service("/usr/bin/chromedriver"),
-            options=opts,
-        )
+        driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"), options=opts)
+
+    driver.set_page_load_timeout(60)
     return driver
 
 
-def run_capture(url: str, log=print) -> dict:
-    result = {"product_name": "", "detail_png": None, "images": [], "error": None}
-    driver = None
+def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
+    """드라이버를 받아 URL 1개를 캡처 — Chrome 재시작 없음"""
+    result = {"product_name": "", "detail_png": None, "spec_png": None, "images": [], "error": None}
+    imgs   = []
 
     try:
-        driver = make_driver()
-
         # 1. 페이지 로드
         log("📄 페이지 로딩 중...")
         driver.get(url)
+        # 뷰포트 초기화 (이전 URL 에서 크기가 바뀌었을 수 있음)
+        driver.set_window_size(WIDTH, 900)
         time.sleep(WAIT_SEC)
 
         # 2. 상품명 추출
         product_name = driver.execute_script("""
-            const sels=['#compGoodRevampFeaturesName h2.prod-name','#compGoodRevampFeaturesName h2','h2.prod-name','.prod-name','h1.prod-title','h1'];
+            const sels=['#compGoodRevampFeaturesName h2.prod-name','#compGoodRevampFeaturesName h2',
+                        'h2.prod-name','.prod-name','h1.prod-title','h1'];
             for(const s of sels){const el=document.querySelector(s);if(el&&el.textContent.trim())return el.textContent.trim();}
             const og=document.querySelector('meta[property="og:title"]');
             if(og) return og.content.split('|')[0].trim();
@@ -142,7 +183,7 @@ def run_capture(url: str, log=print) -> dict:
         """)
         log(f"   → {len(imgs)}개 발견")
 
-        # 4. 스크롤 (lazy-load)
+        # 4. 스크롤
         log("🔄 스크롤 중...")
         driver.execute_script("""
             return new Promise(resolve=>{
@@ -158,19 +199,80 @@ def run_capture(url: str, log=print) -> dict:
         driver.execute_script(JS_EXPAND_FAQ)
         time.sleep(0.6)
 
-        # 6. 스펙 탭 + AJAX 대기
+        # 6. 스펙 탭 + AJAX 대기 + 탭별 캡처
         log("📊 스펙 로딩 중...")
         driver.execute_script(JS_CLICK_SPEC_TAB)
         time.sleep(1.5)
         driver.execute_script(JS_EXPAND_SPEC)
+
+        # 첫 번째 탭 AJAX 대기
+        spec_tabs = []
         for i in range(10):
             time.sleep(0.8)
             check = driver.execute_script(JS_SPEC_CHECK)
-            log(f"   AJAX 대기 {i+1}초 (len={check.get('len',0)})")
+            log(f"   AJAX 대기 {i+1}회 (len={check.get('len',0)})")
             if check.get("len", 0) > 100:
-                log("   → 완료!")
+                spec_tabs = check.get("tabs", [])
+                log(f"   → 완료! 탭 {len(spec_tabs)}개 발견: {[t['text'] for t in spec_tabs]}")
                 break
         time.sleep(0.5)
+
+        # 탭이 2개 이상이면 탭별 스펙 캡처 이미지 생성
+        if len(spec_tabs) >= 2:
+            log(f"📋 탭별 스펙 캡처 시작 ({len(spec_tabs)}개 탭)...")
+            tab_imgs = []
+            for tab in spec_tabs:
+                tab_name = tab["text"]
+                log(f"   탭 [{tab['index']+1}] {tab_name} 클릭...")
+                driver.execute_script(JS_CLICK_SPEC_TAB_BY_INDEX, tab["index"])
+                # AJAX 대기
+                for j in range(10):
+                    time.sleep(0.8)
+                    chk = driver.execute_script(JS_SPEC_CHECK)
+                    if chk.get("len", 0) > 100:
+                        break
+                time.sleep(0.3)
+
+                # 스펙 섹션만 캡처
+                spec_box = driver.execute_script("""
+                    const el = document.querySelector('#compGoodsSpec');
+                    if(!el) return null;
+                    const r = el.getBoundingClientRect();
+                    return {
+                        top:    Math.round(r.top + window.scrollY),
+                        left:   Math.round(r.left),
+                        width:  Math.round(r.width),
+                        height: Math.max(Math.round(r.height), el.scrollHeight || 0)
+                    };
+                """)
+                if spec_box and spec_box["height"] > 0:
+                    full_h = driver.execute_script("return document.body.scrollHeight")
+                    driver.set_window_size(WIDTH, full_h)
+                    time.sleep(0.3)
+                    raw = driver.get_screenshot_as_png()
+                    img = PILImage.open(io.BytesIO(raw))
+                    iw, ih = img.size
+                    x1 = max(0, spec_box["left"])
+                    y1 = max(0, spec_box["top"])
+                    x2 = min(iw, spec_box["left"] + spec_box["width"])
+                    y2 = min(ih, spec_box["top"]  + spec_box["height"])
+                    tab_imgs.append((tab_name, img.crop((x1, y1, x2, y2))))
+                    log(f"      → {x2-x1}x{y2-y1}px 캡처 완료")
+
+            # 탭별 이미지를 세로로 합치기
+            if tab_imgs:
+                total_h = sum(im.height for _, im in tab_imgs)
+                max_w   = max(im.width for _, im in tab_imgs)
+                combined = PILImage.new("RGB", (max_w, total_h), (255, 255, 255))
+                y_offset = 0
+                for _, im in tab_imgs:
+                    combined.paste(im, (0, y_offset))
+                    y_offset += im.height
+                buf = io.BytesIO()
+                combined.save(buf, "PNG")
+                result["spec_png"] = buf.getvalue()   # 탭 합체 스펙 이미지
+                log(f"   → 탭 {len(tab_imgs)}개 합체: {max_w}x{total_h}px")
+
         driver.execute_script("window.scrollTo(0,0)")
         time.sleep(0.3)
 
@@ -182,13 +284,16 @@ def run_capture(url: str, log=print) -> dict:
                 const els=document.querySelectorAll('{sel}');
                 return Array.from(els).map(el=>{{
                     const r=el.getBoundingClientRect();
-                    return {{width:Math.round(r.width),height:Math.max(Math.round(r.height),el.scrollHeight||0),top:Math.round(r.top+window.scrollY),left:Math.round(r.left)}};
+                    return {{width:Math.round(r.width),height:Math.max(Math.round(r.height),el.scrollHeight||0),
+                            top:Math.round(r.top+window.scrollY),left:Math.round(r.left)}};
                 }});
             """)
             valid = [e for e in (info or []) if e["width"] > 0 and e["height"] > 0]
             if valid:
-                boxes.append(valid[0])
-                log(f"   {sel}: {valid[0]['width']}x{valid[0]['height']}px")
+                # 같은 셀렉터에 여러 요소가 있으면 모두 포함 (예: faqWrap 2개)
+                for v in valid:
+                    boxes.append(v)
+                log(f"   {sel}: {len(valid)}개 → " + ", ".join(f"{v['width']}x{v['height']}px" for v in valid))
             else:
                 log(f"   {sel}: 미발견")
 
@@ -199,7 +304,6 @@ def run_capture(url: str, log=print) -> dict:
                 "width":  max(b["left"]+b["width"]  for b in boxes) - min(b["left"] for b in boxes),
                 "height": max(b["top"] +b["height"] for b in boxes) - min(b["top"]  for b in boxes),
             }
-            # 뷰포트 높이 확장
             full_h = driver.execute_script("return document.body.scrollHeight")
             driver.set_window_size(WIDTH, full_h)
             time.sleep(0.5)
@@ -219,11 +323,8 @@ def run_capture(url: str, log=print) -> dict:
     except Exception as e:
         result["error"] = str(e)
         log(f"❌ 오류: {e}")
-    finally:
-        if driver:
-            driver.quit()
 
-    # 8. 대표이미지 다운로드
+    # 8. 대표이미지 다운로드 (브라우저 불필요)
     if not result["error"] and imgs:
         log(f"⬇️  대표이미지 다운로드 ({len(imgs)}개)...")
         headers = {"User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/120.0.0.0", "Referer": url}
@@ -234,25 +335,17 @@ def run_capture(url: str, log=print) -> dict:
             seen.add(src)
             if src.startswith("//"): src = "https:" + src
             elif src.startswith("/"): src = "https://www.samsung.com" + src
-            fname = f"{idx:02d}_{sanitize(img['alt'][:15]) or 'img'}.png"
+            fname = f"{idx:02d}_{sanitize(img['alt'][:15]) or 'img'}.jpg"
             try:
                 req = urllib.request.Request(src, headers=headers)
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     data = resp.read()
-                # 500x500 리사이즈 + JPG 변환
-                from PIL import Image as _Img
-                import io as _io
-                try:
-                    _im = _Img.open(_io.BytesIO(data)).convert("RGB")
-                    _im = _im.resize((500, 500), _Img.LANCZOS)
-                    _buf = _io.BytesIO()
-                    _im.save(_buf, "JPEG", quality=90)
-                    data = _buf.getvalue()
-                    fname = fname.replace(".png", ".jpg")
-                except Exception:
-                    pass
-                result["images"].append({"filename": fname, "data": data})
-                log(f"   [{idx:02d}] ✅ {fname} ({len(data)//1024}KB)")
+                _im = PILImage.open(io.BytesIO(data)).convert("RGB")
+                _im = _im.resize((500, 500), PILImage.LANCZOS)
+                _buf = io.BytesIO()
+                _im.save(_buf, "JPEG", quality=90)
+                result["images"].append({"filename": fname, "data": _buf.getvalue()})
+                log(f"   [{idx:02d}] ✅ {fname} ({_buf.tell()//1024}KB)")
                 idx += 1
             except Exception as e:
                 log(f"   [{idx:02d}] ❌ {e}")
@@ -262,11 +355,45 @@ def run_capture(url: str, log=print) -> dict:
     return result
 
 
-def make_zip(product_name: str, detail_png: bytes, images: list) -> bytes:
+def run_capture(url: str, log=print) -> dict:
+    """단일 URL 캡처 — Chrome 1회 시작/종료"""
+    driver = None
+    try:
+        log("🚀 브라우저 시작 중...")
+        driver = make_driver()
+        return _capture_one(driver, url, log)
+    finally:
+        if driver:
+            driver.quit()
+
+
+def run_capture_multi(urls: list, log=print) -> list:
+    """여러 URL 캡처 — Chrome 1번만 시작해서 모두 처리"""
+    results = []
+    driver  = None
+    try:
+        log("🚀 브라우저 시작 중... (전체 공유)")
+        driver = make_driver()
+        for i, url in enumerate(urls, 1):
+            log(f"\n── [{i}/{len(urls)}] {url[:60]}")
+            result = _capture_one(driver, url, log)
+            results.append(result)
+    except Exception as e:
+        log(f"❌ 브라우저 오류: {e}")
+    finally:
+        if driver:
+            driver.quit()
+            log("🔒 브라우저 종료")
+    return results
+
+
+def make_zip(product_name: str, detail_png: bytes, images: list, spec_png: bytes = None) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         if detail_png:
             zf.writestr(f"{product_name}_상품상세.png", detail_png)
+        if spec_png:
+            zf.writestr(f"{product_name}_스펙.png", spec_png)
         for img in images:
             zf.writestr(f"{product_name}/{img['filename']}", img["data"])
     return buf.getvalue()
