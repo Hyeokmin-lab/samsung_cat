@@ -237,19 +237,18 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 tab_idx  = tab["index"]
                 log(f"   탭 [{tab_idx+1}] {tab_name} 클릭...")
 
-                # 클릭 전 #specTabContent HTML 저장
+                # 클릭 전 #specContents HTML 저장 (실제 콘텐츠 영역)
                 before_html = driver.execute_script(
-                    "const el=document.querySelector('#specTabContent');"
+                    "const el=document.querySelector('#specContents');"
                     "return el ? el.innerHTML.trim() : '';"
                 )
 
-                # Selenium WebElement 직접 클릭 (JS click 아님)
+                # Selenium WebElement 직접 클릭
                 try:
                     tab_els = driver.find_elements(By.CSS_SELECTOR,
                                                    "ul.spec-tabcontent-tab li.tab-item")
                     if tab_idx < len(tab_els):
                         el = tab_els[tab_idx]
-                        # 뷰포트 안으로 스크롤 후 클릭
                         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
                         time.sleep(0.3)
                         ActionChains(driver).move_to_element(el).click().perform()
@@ -263,31 +262,39 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
 
                 time.sleep(0.5)
 
-                # #specTabContent 내용이 바뀔 때까지 대기
+                # #specContents 내용이 바뀔 때까지 대기
                 for j in range(15):
                     time.sleep(0.7)
                     after_html = driver.execute_script(
-                        "const el=document.querySelector('#specTabContent');"
+                        "const el=document.querySelector('#specContents');"
                         "return el ? el.innerHTML.trim() : '';"
                     )
                     changed = after_html != before_html and len(after_html) > 100
                     log(f"      대기 {j+1}회 before={len(before_html)} after={len(after_html)} changed={changed}")
                     if changed:
-                        log(f"      → #specTabContent 변경 확인!")
+                        log(f"      → #specContents 변경 확인!")
                         break
                 time.sleep(0.3)
 
-                # 스펙 섹션만 캡처
+                # 탭 헤더(ul.spec-tabcontent-tab) + 콘텐츠(#specContents) 영역 캡처
                 spec_box = driver.execute_script("""
-                    const el = document.querySelector('#compGoodsSpec');
-                    if(!el) return null;
-                    const r = el.getBoundingClientRect();
-                    return {
-                        top:    Math.round(r.top + window.scrollY),
-                        left:   Math.round(r.left),
-                        width:  Math.round(r.width),
-                        height: Math.max(Math.round(r.height), el.scrollHeight || 0)
-                    };
+                    const tab_ul = document.querySelector('ul.spec-tabcontent-tab');
+                    const content = document.querySelector('#specContents');
+                    if(!tab_ul || !content) {
+                        const fb = document.querySelector('#compGoodsSpec');
+                        if(!fb) return null;
+                        const r = fb.getBoundingClientRect();
+                        return {top: Math.round(r.top+window.scrollY), left: Math.round(r.left),
+                                width: Math.round(r.width), height: Math.max(Math.round(r.height), fb.scrollHeight)};
+                    }
+                    const r1 = tab_ul.getBoundingClientRect();
+                    const r2 = content.getBoundingClientRect();
+                    const top  = Math.round(Math.min(r1.top, r2.top) + window.scrollY);
+                    const left = Math.round(Math.min(r1.left, r2.left));
+                    const right  = Math.round(Math.max(r1.right, r2.right));
+                    const bottom = Math.round(Math.max(r2.top + window.scrollY + Math.max(r2.height, content.scrollHeight),
+                                                       r1.top + window.scrollY + r1.height));
+                    return {top: top, left: left, width: right - left, height: bottom - top};
                 """)
                 if spec_box and spec_box["height"] > 0:
                     full_h = driver.execute_script("return document.body.scrollHeight")
