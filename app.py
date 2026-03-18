@@ -54,7 +54,7 @@ with st.form("capture_form"):
     url3 = st.text_input("상품 URL 3 (선택)", placeholder="https://www.samsung.com/sec/...")
     col1, col2 = st.columns(2)
     with col1:
-        width = st.selectbox("캡처 너비", [1000, 1280, 768], index=0,
+        width = st.selectbox("캡처 너비", [768, 1000, 1280], index=0,
                              format_func=lambda x: f"{x}px")
     with col2:
         wait_sec = st.selectbox("페이지 대기 시간", [3, 4, 5, 6, 8, 10], index=0,
