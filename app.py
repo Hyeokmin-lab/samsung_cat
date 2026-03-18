@@ -152,12 +152,10 @@ if st.session_state.results:
                     if st.button("전체 선택", key=f"all_{idx}_{url[-20:]}", use_container_width=True):
                         for i in range(len(images)):
                             st.session_state[chk_key(i)] = True
-                        st.rerun()
                 with bc2:
                     if st.button("전체 해제", key=f"none_{idx}_{url[-20:]}", use_container_width=True):
                         for i in range(len(images)):
                             st.session_state[chk_key(i)] = False
-                        st.rerun()
 
                 st.markdown("---")
                 cols = st.columns(min(len(images), 4))
