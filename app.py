@@ -136,7 +136,7 @@ if st.session_state.results:
         # ── 대표이미지 선택 ──────────────────────────────────
         # 체크박스 키를 직접 session_state 소스로 사용
         # 전체선택/해제 버튼은 해당 키를 직접 설정 후 rerun
-        def chk_key(i): return f"chk_{idx}_{url[-20:]}_{i}"
+        def chk_key(i, _idx=idx, _url=url): return f"chk_{_idx}_{_url[-20:]}_{i}"
 
         if images:
             # 초기값 설정 (최초 1회)
@@ -187,12 +187,16 @@ if st.session_state.results:
         st.subheader("📦 전체 ZIP (모든 상품 합치기)")
         all_buf = io.BytesIO()
         with zipfile.ZipFile(all_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for r in success:
+            for j, r in enumerate(success):
                 pname = r["product_name"]
+                r_url = next((u for u, v in st.session_state.results.items() if v is r), "")
+                r_idx = list(st.session_state.results.keys()).index(r_url) + 1 if r_url else j + 1
                 if r["detail_png"]:
                     zf.writestr(f"{pname}/{pname}_상품상세.png", r["detail_png"])
-                for img in r["images"]:
-                    zf.writestr(f"{pname}/대표이미지/{img['filename']}", img["data"])
+                for i, img in enumerate(r["images"]):
+                    k = f"chk_{r_idx}_{r_url[-20:]}_{i}"
+                    if st.session_state.get(k, False):
+                        zf.writestr(f"{pname}/대표이미지/{img['filename']}", img["data"])
         all_zip = all_buf.getvalue()
         st.download_button(
             label=f"⬇️ 전체 합치기 ZIP ({len(all_zip)//1024} KB)",
