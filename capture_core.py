@@ -87,12 +87,11 @@ if(sl) sl.style.display='none';
 const lb=s.querySelector('.spec-link-box');
 if(lb) lb.style.display='none';
 const tbl=s.querySelector('.spec-table');
-// 탭 목록 수집
-const tabEls = s.querySelectorAll('a[name^="spec-tab"]');
-const tabs = Array.from(tabEls).map((a,i) => ({
+// 탭 목록 수집 — ul.spec-tabcontent-tab > li.tab-item
+const tabEls = s.querySelectorAll('ul.spec-tabcontent-tab li.tab-item');
+const tabs = Array.from(tabEls).map((li, i) => ({
     index: i,
-    text:  a.textContent.trim(),
-    ariaControls: a.getAttribute('aria-controls') || ''
+    text:  li.textContent.trim()
 }));
 return {ok:true, len: tbl ? tbl.innerHTML.trim().length : 0, tabs: tabs};
 """
@@ -101,9 +100,11 @@ JS_CLICK_SPEC_TAB_BY_INDEX = """
 (idx) => {
     const s = document.querySelector('#compGoodsSpec');
     if(!s) return false;
-    const tabs = s.querySelectorAll('a[name^="spec-tab"]');
+    const tabs = s.querySelectorAll('ul.spec-tabcontent-tab li.tab-item');
     if(idx >= tabs.length) return false;
-    tabs[idx].click();
+    // li 안의 클릭 가능한 요소(a 또는 button) 우선 클릭, 없으면 li 자체 클릭
+    const clickable = tabs[idx].querySelector('a, button') || tabs[idx];
+    clickable.click();
     return tabs[idx].textContent.trim();
 }
 """
@@ -223,22 +224,31 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
             tab_imgs = []
             for tab in spec_tabs:
                 tab_name = tab["text"]
-                log(f"   탭 [{tab['index']+1}] {tab_name} 클릭...")
+                tab_idx  = tab["index"]
+                log(f"   탭 [{tab_idx+1}] {tab_name} 클릭...")
 
-                # 클릭 전 현재 내용 저장 (변경 감지용)
-                before = driver.execute_script(JS_SPEC_CHECK)
-                before_len = before.get("len", 0)
+                # 클릭 전 테이블 HTML 저장 (변경 감지용)
+                before_html = driver.execute_script("""
+                    const tbl = document.querySelector('#compGoodsSpec .spec-table');
+                    return tbl ? tbl.innerHTML.trim() : '';
+                """)
 
-                driver.execute_script(JS_CLICK_SPEC_TAB_BY_INDEX, tab["index"])
+                # 탭 클릭
+                clicked = driver.execute_script(JS_CLICK_SPEC_TAB_BY_INDEX, tab_idx)
+                log(f"      클릭 결과: {clicked}")
+                time.sleep(0.5)
 
-                # 내용이 실제로 바뀔 때까지 대기
+                # 테이블 HTML이 실제로 바뀔 때까지 대기
                 for j in range(15):
-                    time.sleep(0.6)
-                    chk = driver.execute_script(JS_SPEC_CHECK)
-                    after_len = chk.get("len", 0)
-                    log(f"      대기 {j+1}회 before={before_len} after={after_len}")
-                    if after_len > 100 and after_len != before_len:
-                        log(f"      → 내용 변경 확인!")
+                    time.sleep(0.7)
+                    after_html = driver.execute_script("""
+                        const tbl = document.querySelector('#compGoodsSpec .spec-table');
+                        return tbl ? tbl.innerHTML.trim() : '';
+                    """)
+                    changed = after_html != before_html and len(after_html) > 100
+                    log(f"      대기 {j+1}회 before={len(before_html)} after={len(after_html)} changed={changed}")
+                    if changed:
+                        log(f"      → 콘텐츠 변경 확인!")
                         break
                 time.sleep(0.3)
 
