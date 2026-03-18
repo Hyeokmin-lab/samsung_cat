@@ -14,7 +14,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 
 WIDTH    = 1000
-WAIT_SEC = 5
+WAIT_SEC = 3
 
 FAQ_FULL_SELECTORS = [
     "div.wrap-component.feature-benefit",
@@ -151,28 +151,28 @@ def run_capture(url: str, log=print) -> dict:
                 if(pos>=document.body.scrollHeight){clearInterval(id);window.scrollTo(0,0);resolve();}},100);
             });
         """)
-        time.sleep(2.0)
+        time.sleep(1.2)
 
         # 5. FAQ 펼치기
         log("📖 FAQ 펼치는 중...")
         driver.execute_script(JS_EXPAND_FAQ)
-        time.sleep(1.0)
+        time.sleep(0.6)
 
         # 6. 스펙 탭 + AJAX 대기
         log("📊 스펙 로딩 중...")
         driver.execute_script(JS_CLICK_SPEC_TAB)
-        time.sleep(2.0)
+        time.sleep(1.5)
         driver.execute_script(JS_EXPAND_SPEC)
         for i in range(10):
-            time.sleep(1.0)
+            time.sleep(0.8)
             check = driver.execute_script(JS_SPEC_CHECK)
             log(f"   AJAX 대기 {i+1}초 (len={check.get('len',0)})")
             if check.get("len", 0) > 100:
                 log("   → 완료!")
                 break
-        time.sleep(1.0)
-        driver.execute_script("window.scrollTo(0,0)")
         time.sleep(0.5)
+        driver.execute_script("window.scrollTo(0,0)")
+        time.sleep(0.3)
 
         # 7. 영역 측정 + 캡처
         log("📸 상세 캡처 중...")
@@ -202,7 +202,7 @@ def run_capture(url: str, log=print) -> dict:
             # 뷰포트 높이 확장
             full_h = driver.execute_script("return document.body.scrollHeight")
             driver.set_window_size(WIDTH, full_h)
-            time.sleep(0.8)
+            time.sleep(0.5)
             raw = driver.get_screenshot_as_png()
             img_full = PILImage.open(io.BytesIO(raw))
             iw, ih = img_full.size
@@ -239,6 +239,18 @@ def run_capture(url: str, log=print) -> dict:
                 req = urllib.request.Request(src, headers=headers)
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     data = resp.read()
+                # 500x500 리사이즈 + JPG 변환
+                from PIL import Image as _Img
+                import io as _io
+                try:
+                    _im = _Img.open(_io.BytesIO(data)).convert("RGB")
+                    _im = _im.resize((500, 500), _Img.LANCZOS)
+                    _buf = _io.BytesIO()
+                    _im.save(_buf, "JPEG", quality=90)
+                    data = _buf.getvalue()
+                    fname = fname.replace(".png", ".jpg")
+                except Exception:
+                    pass
                 result["images"].append({"filename": fname, "data": data})
                 log(f"   [{idx:02d}] ✅ {fname} ({len(data)//1024}KB)")
                 idx += 1
