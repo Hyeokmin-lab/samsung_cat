@@ -54,10 +54,10 @@ with st.form("capture_form"):
     url3 = st.text_input("상품 URL 3 (선택)", placeholder="https://www.samsung.com/sec/...")
     col1, col2 = st.columns(2)
     with col1:
-        width = st.selectbox("캡처 너비", [1000, 1280, 780], index=0,
+        width = st.selectbox("캡처 너비", [1000, 1280, 768], index=0,
                              format_func=lambda x: f"{x}px")
     with col2:
-        wait_sec = st.selectbox("페이지 대기 시간", [4, 5, 6, 8, 10], index=1,
+        wait_sec = st.selectbox("페이지 대기 시간", [3, 4, 5, 6, 8, 10], index=0,
                                 format_func=lambda x: f"{x}초")
     submitted = st.form_submit_button("🚀 캡처 시작", type="primary", use_container_width=True)
 
@@ -86,7 +86,7 @@ if st.session_state.running:
 
     import capture_core
     capture_core.WIDTH    = st.session_state.get("width", 1000)
-    capture_core.WAIT_SEC = st.session_state.get("wait_sec", 5)
+    capture_core.WAIT_SEC = st.session_state.get("wait_sec", 3)
 
     if pending:
         url = pending[0]
@@ -146,22 +146,44 @@ if st.session_state.results:
             with st.expander("🖼️ 상품상세 미리보기", expanded=(idx == 1)):
                 st.image(detail_png, use_column_width=True)
 
-        # 대표이미지 미리보기
+        # 대표이미지 선택 + 미리보기
+        sel_key = f"sel_{idx}_{url[-20:]}"
         if images:
-            with st.expander(f"📷 대표이미지 ({len(images)}장)", expanded=False):
+            with st.expander(f"📷 대표이미지 선택 ({len(images)}장)", expanded=True):
+                if sel_key not in st.session_state:
+                    st.session_state[sel_key] = [True] * len(images)
+
+                bc1, bc2, _ = st.columns([1, 1, 4])
+                with bc1:
+                    if st.button("전체 선택", key=f"all_{idx}_{url[-20:]}", use_container_width=True):
+                        st.session_state[sel_key] = [True] * len(images)
+                        st.rerun()
+                with bc2:
+                    if st.button("전체 해제", key=f"none_{idx}_{url[-20:]}", use_container_width=True):
+                        st.session_state[sel_key] = [False] * len(images)
+                        st.rerun()
+
+                st.markdown("---")
                 cols = st.columns(min(len(images), 4))
                 for i, img in enumerate(images):
                     with cols[i % 4]:
-                        st.image(img["data"], caption=img["filename"], use_column_width=True)
+                        st.image(img["data"], use_column_width=True)
+                        checked = st.checkbox(
+                            img["filename"],
+                            value=st.session_state[sel_key][i],
+                            key=f"chk_{idx}_{url[-20:]}_{i}",
+                        )
+                        st.session_state[sel_key][i] = checked
 
-        # 개별 ZIP 다운로드
-        zip_data = make_zip(product_name, detail_png, images)
+        # 선택된 이미지만 ZIP
+        sel_images = [img for i, img in enumerate(images) if st.session_state.get(sel_key, [True]*len(images))[i]] if images else []
+        zip_data = make_zip(product_name, detail_png, sel_images)
         st.download_button(
-            label=f"📦 {product_name}.zip 다운로드 ({len(zip_data)//1024} KB)",
+            label=f"📦 {product_name}.zip — 상품상세 + 대표이미지 {len(sel_images)}장 ({len(zip_data)//1024} KB)",
             data=zip_data,
             file_name=f"{product_name}.zip",
             mime="application/zip",
-            key=f"dl_{idx}_{url[-20:]}",   # 고유 key
+            key=f"dl_{idx}_{url[-20:]}",
             use_container_width=True,
         )
         st.divider()
