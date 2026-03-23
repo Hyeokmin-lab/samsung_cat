@@ -233,7 +233,7 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
             log(f"📋 탭별 스펙 캡처 ({len(spec_tabs)}개 탭)...")
             tab_imgs = []
 
-            # 전체 페이지 높이로 뷰포트 확장 (캡처 전 1회)
+            # 뷰포트를 페이지 전체 높이로 확장
             full_h = driver.execute_script("return document.body.scrollHeight")
             driver.set_window_size(WIDTH, full_h)
             time.sleep(0.5)
@@ -243,59 +243,51 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 tab_idx  = tab["index"]
                 log(f"   탭 [{tab_idx+1}/{len(spec_tabs)}] {tab_name}")
 
-                # 클릭 전 #specTabContent innerHTML 저장
-                before_html = driver.execute_script(
-                    "const el=document.querySelector('#specTabContent');"
-                    "return el ? el.innerHTML.trim() : '';"
+                # 탭 요소 찾기
+                tab_els = driver.find_elements(
+                    By.CSS_SELECTOR,
+                    "#specContents ul.spec-tabcontent-tab li.tab-item"
                 )
-
-                # li.tab-item 요소 찾아서 클릭 (sticky 헤더 회피: 화면 밖으로 스크롤)
-                try:
-                    tab_els = driver.find_elements(
-                        By.CSS_SELECTOR,
-                        "#specContents ul.spec-tabcontent-tab li.tab-item"
-                    )
-                    log(f"      탭 요소 수: {len(tab_els)}")
-                    if tab_idx >= len(tab_els):
-                        log(f"      탭 요소 없음")
-                        continue
-                    el = tab_els[tab_idx]
-                    # sticky 헤더가 가리지 않도록 요소 위쪽에 여유를 두고 스크롤
-                    driver.execute_script(
-                        "arguments[0].scrollIntoView(true);"
-                        "window.scrollBy(0, -150);",
-                        el
-                    )
-                    time.sleep(0.5)
-                    # JavaScript로 직접 click 이벤트 발생 (dispatchEvent)
-                    driver.execute_script(
-                        "arguments[0].dispatchEvent("
-                        "  new MouseEvent('click', {bubbles:true, cancelable:true, view:window})"
-                        ");",
-                        el
-                    )
-                    log(f"      클릭 완료")
-                except Exception as e:
-                    log(f"      클릭 오류: {e}")
+                log(f"      탭 요소 수: {len(tab_els)}")
+                if tab_idx >= len(tab_els):
+                    log(f"      탭 요소 없음")
                     continue
 
-                # #specTabContent 내용이 바뀔 때까지 대기
-                changed = False
+                el = tab_els[tab_idx]
+
+                # 클릭 전 #specTabContent 텍스트 저장 (변경 감지용)
+                before_text = driver.execute_script(
+                    "const el=document.querySelector('#specTabContent');"
+                    "return el ? el.innerText.trim() : '';"
+                )
+
+                # ActionChains 로 실제 마우스 클릭
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+                time.sleep(0.4)
+                ActionChains(driver).move_to_element(el).click().perform()
+                log(f"      ActionChains 클릭 완료")
+                time.sleep(1.0)  # 클릭 후 최소 대기
+
+                # 탭명이 #specTabContent 본문에 등장할 때까지 대기
+                # (Samsung 스펙표 상단에 현재 탭명이 h2/h3으로 표시됨)
+                confirmed = False
                 for j in range(15):
-                    time.sleep(0.8)
-                    after_html = driver.execute_script(
+                    time.sleep(0.7)
+                    after_text = driver.execute_script(
                         "const el=document.querySelector('#specTabContent');"
-                        "return el ? el.innerHTML.trim() : '';"
+                        "return el ? el.innerText.trim() : '';"
                     )
-                    changed = (after_html != before_html) and len(after_html) > 100
-                    log(f"      대기 {j+1}회 | before={len(before_html)} after={len(after_html)} changed={changed}")
-                    if changed:
-                        log(f"      → 내용 변경 확인!")
+                    text_changed = after_text != before_text
+                    has_tabname  = tab_name in after_text
+                    log(f"      대기 {j+1}회 | text_changed={text_changed} has_tabname={has_tabname}")
+                    if text_changed or has_tabname:
+                        log(f"      → 전환 확인!")
+                        confirmed = True
                         break
 
-                if not changed:
-                    log(f"      ⚠️ 내용 미변경 — 현재 화면 그대로 캡처")
-                time.sleep(0.3)
+                if not confirmed:
+                    log(f"      ⚠️ 전환 미확인 — 현재 화면 캡처")
+                time.sleep(0.5)
 
                 # #specContents 전체 영역 캡처
                 spec_box = driver.execute_script("""
