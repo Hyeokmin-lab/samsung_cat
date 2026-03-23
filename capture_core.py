@@ -210,95 +210,106 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
         driver.execute_script(JS_EXPAND_FAQ)
         time.sleep(0.6)
 
-        # 6. 스펙 탭 + AJAX 대기 + 탭별 캡처
+        # 6. 스펙 섹션 로딩
         log("📊 스펙 로딩 중...")
         driver.execute_script(JS_CLICK_SPEC_TAB)
         time.sleep(1.5)
         driver.execute_script(JS_EXPAND_SPEC)
 
-        # 첫 번째 탭 AJAX 대기
+        # 첫 번째 탭 로드 대기
         spec_tabs = []
         for i in range(10):
             time.sleep(0.8)
             check = driver.execute_script(JS_SPEC_CHECK)
-            log(f"   AJAX 대기 {i+1}회 (len={check.get('len',0)})")
+            log(f"   로드 대기 {i+1}회 (len={check.get('len',0)})")
             if check.get("len", 0) > 100:
                 spec_tabs = check.get("tabs", [])
-                log(f"   → 완료! 탭 {len(spec_tabs)}개 발견: {[t['text'] for t in spec_tabs]}")
+                log(f"   → 완료! 탭 {len(spec_tabs)}개: {[t['text'] for t in spec_tabs]}")
                 break
         time.sleep(0.5)
 
-        # 탭이 2개 이상이면 탭별 스펙 캡처 이미지 생성
+        # 탭이 2개 이상이면 탭별 캡처
         if len(spec_tabs) >= 2:
-            log(f"📋 탭별 스펙 캡처 시작 ({len(spec_tabs)}개 탭)...")
+            log(f"📋 탭별 스펙 캡처 ({len(spec_tabs)}개 탭)...")
             tab_imgs = []
+
+            # 전체 페이지 높이로 뷰포트 확장 (캡처 전 1회)
+            full_h = driver.execute_script("return document.body.scrollHeight")
+            driver.set_window_size(WIDTH, full_h)
+            time.sleep(0.5)
+
             for tab in spec_tabs:
                 tab_name = tab["text"]
                 tab_idx  = tab["index"]
-                log(f"   탭 [{tab_idx+1}] {tab_name} 클릭...")
+                log(f"   탭 [{tab_idx+1}/{len(spec_tabs)}] {tab_name}")
 
-                # 클릭 전 #specTabContent HTML 저장 (탭 전환 시 교체되는 영역)
+                # 클릭 전 #specTabContent innerHTML 저장
                 before_html = driver.execute_script(
                     "const el=document.querySelector('#specTabContent');"
                     "return el ? el.innerHTML.trim() : '';"
                 )
 
-                # Selenium WebElement 직접 클릭
+                # li.tab-item 요소 찾아서 클릭 (sticky 헤더 회피: 화면 밖으로 스크롤)
                 try:
-                    tab_els = driver.find_elements(By.CSS_SELECTOR,
-                                                   ".spec-tabcontent-wrap li.tab-item")
-                    if tab_idx < len(tab_els):
-                        el = tab_els[tab_idx]
-                        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
-                        time.sleep(0.3)
-                        ActionChains(driver).move_to_element(el).click().perform()
-                        log(f"      Selenium 클릭 성공: {el.text.strip()}")
-                    else:
-                        log(f"      탭 요소 없음 (idx={tab_idx}, total={len(tab_els)})")
+                    tab_els = driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "#specContents ul.spec-tabcontent-tab li.tab-item"
+                    )
+                    log(f"      탭 요소 수: {len(tab_els)}")
+                    if tab_idx >= len(tab_els):
+                        log(f"      탭 요소 없음")
                         continue
+                    el = tab_els[tab_idx]
+                    # sticky 헤더가 가리지 않도록 요소 위쪽에 여유를 두고 스크롤
+                    driver.execute_script(
+                        "arguments[0].scrollIntoView(true);"
+                        "window.scrollBy(0, -150);",
+                        el
+                    )
+                    time.sleep(0.5)
+                    # JavaScript로 직접 click 이벤트 발생 (dispatchEvent)
+                    driver.execute_script(
+                        "arguments[0].dispatchEvent("
+                        "  new MouseEvent('click', {bubbles:true, cancelable:true, view:window})"
+                        ");",
+                        el
+                    )
+                    log(f"      클릭 완료")
                 except Exception as e:
                     log(f"      클릭 오류: {e}")
                     continue
 
-                time.sleep(0.5)
-
                 # #specTabContent 내용이 바뀔 때까지 대기
+                changed = False
                 for j in range(15):
-                    time.sleep(0.7)
+                    time.sleep(0.8)
                     after_html = driver.execute_script(
                         "const el=document.querySelector('#specTabContent');"
                         "return el ? el.innerHTML.trim() : '';"
                     )
-                    changed = after_html != before_html and len(after_html) > 100
-                    log(f"      대기 {j+1}회 before={len(before_html)} after={len(after_html)} changed={changed}")
+                    changed = (after_html != before_html) and len(after_html) > 100
+                    log(f"      대기 {j+1}회 | before={len(before_html)} after={len(after_html)} changed={changed}")
                     if changed:
-                        log(f"      → #specTabContent 변경 확인!")
+                        log(f"      → 내용 변경 확인!")
                         break
+
+                if not changed:
+                    log(f"      ⚠️ 내용 미변경 — 현재 화면 그대로 캡처")
                 time.sleep(0.3)
 
-                # 탭 헤더(ul.spec-tabcontent-tab) + 콘텐츠(#specContents) 영역 캡처
+                # #specContents 전체 영역 캡처
                 spec_box = driver.execute_script("""
-                    const wrap   = document.querySelector('.spec-tabcontent-wrap');
-                    const content = document.querySelector('#specTabContent');
-                    if(!wrap || !content) {
-                        const fb = document.querySelector('#compGoodsSpec');
-                        if(!fb) return null;
-                        const r = fb.getBoundingClientRect();
-                        return {top: Math.round(r.top+window.scrollY), left: Math.round(r.left),
-                                width: Math.round(r.width), height: Math.max(Math.round(r.height), fb.scrollHeight)};
-                    }
-                    const r1 = wrap.getBoundingClientRect();
-                    const r2 = content.getBoundingClientRect();
-                    const top    = Math.round(r1.top + window.scrollY);
-                    const left   = Math.round(Math.min(r1.left, r2.left));
-                    const right  = Math.round(Math.max(r1.right, r2.right));
-                    const bottom = Math.round(r2.top + window.scrollY + Math.max(r2.height, content.scrollHeight));
-                    return {top: top, left: left, width: right - left, height: bottom - top};
+                    const el = document.querySelector('#specContents');
+                    if(!el) return null;
+                    const r = el.getBoundingClientRect();
+                    return {
+                        top:    Math.round(r.top + window.scrollY),
+                        left:   Math.round(r.left),
+                        width:  Math.round(r.width),
+                        height: Math.max(Math.round(r.height), el.scrollHeight)
+                    };
                 """)
                 if spec_box and spec_box["height"] > 0:
-                    full_h = driver.execute_script("return document.body.scrollHeight")
-                    driver.set_window_size(WIDTH, full_h)
-                    time.sleep(0.3)
                     raw = driver.get_screenshot_as_png()
                     img = PILImage.open(io.BytesIO(raw))
                     iw, ih = img.size
@@ -307,21 +318,21 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                     x2 = min(iw, spec_box["left"] + spec_box["width"])
                     y2 = min(ih, spec_box["top"]  + spec_box["height"])
                     tab_imgs.append((tab_name, img.crop((x1, y1, x2, y2))))
-                    log(f"      → {x2-x1}x{y2-y1}px 캡처 완료")
+                    log(f"      → 캡처 완료 {x2-x1}x{y2-y1}px")
 
-            # 탭별 이미지를 세로로 합치기
+            # 탭별 이미지 세로 합치기
             if tab_imgs:
                 total_h = sum(im.height for _, im in tab_imgs)
-                max_w   = max(im.width for _, im in tab_imgs)
+                max_w   = max(im.width  for _, im in tab_imgs)
                 combined = PILImage.new("RGB", (max_w, total_h), (255, 255, 255))
-                y_offset = 0
+                y_off = 0
                 for _, im in tab_imgs:
-                    combined.paste(im, (0, y_offset))
-                    y_offset += im.height
+                    combined.paste(im, (0, y_off))
+                    y_off += im.height
                 buf = io.BytesIO()
                 combined.save(buf, "PNG")
-                result["spec_png"] = buf.getvalue()   # 탭 합체 스펙 이미지
-                log(f"   → 탭 {len(tab_imgs)}개 합체: {max_w}x{total_h}px")
+                result["spec_png"] = buf.getvalue()
+                log(f"   → {len(tab_imgs)}개 탭 합체: {max_w}x{total_h}px")
 
         driver.execute_script("window.scrollTo(0,0)")
         time.sleep(0.3)
