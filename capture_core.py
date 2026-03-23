@@ -90,11 +90,11 @@ const sl=s.querySelector('#specLayer,[name="specLayer"]');
 if(sl) sl.style.display='none';
 const lb=s.querySelector('.spec-link-box');
 if(lb) lb.style.display='none';
-// 탭 목록 수집 — .spec-tabcontent-wrap 안의 li.tab-item
-const tabEls = s.querySelectorAll('.spec-tabcontent-wrap li.tab-item');
-const tabs = Array.from(tabEls).map((li, i) => ({
+// 탭 목록 수집 — a[name='spec-tab'] 의 data-disp-nm 기준
+const tabEls = s.querySelectorAll("ul.spec-tabcontent-tab li.tab-item a[name='spec-tab']");
+const tabs = Array.from(tabEls).map((a, i) => ({
     index: i,
-    text:  li.textContent.trim()
+    text:  (a.getAttribute('data-disp-nm') || a.innerText).trim()
 }));
 // 콘텐츠 길이 — #specTabContent 기준
 const content = document.querySelector('#specTabContent');
@@ -243,50 +243,46 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 tab_idx  = tab["index"]
                 log(f"   탭 [{tab_idx+1}/{len(spec_tabs)}] {tab_name}")
 
-                # 탭 요소 찾기
-                tab_els = driver.find_elements(
+                # <a> 태그 찾기 (li 안의 a[name='spec-tab'])
+                a_els = driver.find_elements(
                     By.CSS_SELECTOR,
-                    "#specContents ul.spec-tabcontent-tab li.tab-item"
+                    "#specContents ul.spec-tabcontent-tab li.tab-item a[name='spec-tab']"
                 )
-                log(f"      탭 요소 수: {len(tab_els)}")
-                if tab_idx >= len(tab_els):
-                    log(f"      탭 요소 없음")
+                log(f"      a 요소 수: {len(a_els)}")
+                if tab_idx >= len(a_els):
+                    log(f"      a 요소 없음")
                     continue
 
-                el = tab_els[tab_idx]
+                a_el = a_els[tab_idx]
+                log(f"      data-disp-nm: {a_el.get_attribute('data-disp-nm')}")
 
-                # 클릭 전 #specTabContent 텍스트 저장 (변경 감지용)
-                before_text = driver.execute_script(
-                    "const el=document.querySelector('#specTabContent');"
-                    "return el ? el.innerText.trim() : '';"
+                # 클릭 전 #cstrt-nm 텍스트 저장 (탭 전환 시 이 h3이 바뀜)
+                before_nm = driver.execute_script(
+                    "const h=document.querySelector('#cstrt-nm');"
+                    "return h ? h.innerText.trim() : '';"
                 )
+                log(f"      클릭 전 #cstrt-nm: {before_nm!r}")
 
-                # ActionChains 로 실제 마우스 클릭
-                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
-                time.sleep(0.4)
-                ActionChains(driver).move_to_element(el).click().perform()
-                log(f"      ActionChains 클릭 완료")
-                time.sleep(1.0)  # 클릭 후 최소 대기
+                # <a> 태그 직접 클릭
+                driver.execute_script(
+                    "arguments[0].scrollIntoView({block:'center', behavior:'instant'});", a_el
+                )
+                time.sleep(0.3)
+                driver.execute_script("arguments[0].click();", a_el)
+                log(f"      a 클릭 완료")
 
-                # 탭명이 #specTabContent 본문에 등장할 때까지 대기
-                # (Samsung 스펙표 상단에 현재 탭명이 h2/h3으로 표시됨)
-                confirmed = False
+                # #cstrt-nm이 tab_name으로 바뀔 때까지 대기 (최대 10초)
                 for j in range(15):
                     time.sleep(0.7)
-                    after_text = driver.execute_script(
-                        "const el=document.querySelector('#specTabContent');"
-                        "return el ? el.innerText.trim() : '';"
+                    after_nm = driver.execute_script(
+                        "const h=document.querySelector('#cstrt-nm');"
+                        "return h ? h.innerText.trim() : '';"
                     )
-                    text_changed = after_text != before_text
-                    has_tabname  = tab_name in after_text
-                    log(f"      대기 {j+1}회 | text_changed={text_changed} has_tabname={has_tabname}")
-                    if text_changed or has_tabname:
+                    matched = (tab_name in after_nm) or (after_nm in tab_name)
+                    log(f"      대기 {j+1}회 | #cstrt-nm={after_nm!r} matched={matched}")
+                    if matched:
                         log(f"      → 전환 확인!")
-                        confirmed = True
                         break
-
-                if not confirmed:
-                    log(f"      ⚠️ 전환 미확인 — 현재 화면 캡처")
                 time.sleep(0.5)
 
                 # #specContents 전체 영역 캡처
