@@ -55,6 +55,7 @@ with st.form("capture_form"):
     with col2:
         wait_sec = st.selectbox("페이지 대기 시간", [3, 4, 5, 6, 8, 10], index=0,
                                 format_func=lambda x: f"{x}초")
+    multi_spec = st.checkbox("스펙 탭별 개별 캡처 (탭이 여러 개인 상품에 사용)", value=False)
     submitted = st.form_submit_button("🚀 캡처 시작", type="primary", use_container_width=True)
 
 # ── 캡처 시작 ─────────────────────────────────────────────────
@@ -71,13 +72,15 @@ if submitted and not st.session_state.running:
         st.session_state.urls_to_process  = urls
         st.session_state.width            = width
         st.session_state.wait_sec         = wait_sec
+        st.session_state.multi_spec       = multi_spec
         st.rerun()
 
 # ── 전체 URL 일괄 처리 (Chrome 1회 시작) ────────────────────
 if st.session_state.running:
     import capture_core
-    capture_core.WIDTH    = st.session_state.get("width", 768)
-    capture_core.WAIT_SEC = st.session_state.get("wait_sec", 3)
+    capture_core.WIDTH      = st.session_state.get("width", 768)
+    capture_core.WAIT_SEC   = st.session_state.get("wait_sec", 3)
+    capture_core.MULTI_SPEC = st.session_state.get("multi_spec", False)
 
     urls = st.session_state.get("urls_to_process", [])
 

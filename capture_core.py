@@ -17,8 +17,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 
-WIDTH    = 768
-WAIT_SEC = 3
+WIDTH      = 768
+WAIT_SEC   = 3
+MULTI_SPEC = False   # True 일 때만 탭별 스펙 캡처 실행
 
 FAQ_FULL_SELECTORS = [
     "div.wrap-component.feature-benefit",
@@ -228,8 +229,8 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 break
         time.sleep(0.5)
 
-        # 탭이 2개 이상이면 탭별 캡처
-        if len(spec_tabs) >= 2:
+        # 탭이 2개 이상이고 MULTI_SPEC 옵션이 켜진 경우에만 탭별 캡처
+        if len(spec_tabs) >= 2 and MULTI_SPEC:
             log(f"📋 탭별 스펙 캡처 ({len(spec_tabs)}개 탭)...")
             tab_imgs = []
 

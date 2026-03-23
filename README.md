@@ -1,51 +1,50 @@
 # 📸 Samsung 상품 캡처 도구
 
-Samsung 상품 페이지 URL을 입력하면 **대표이미지 + 상품상세 이미지**를 자동으로 캡처합니다.
+Samsung 상품 페이지 URL을 입력하면 **대표이미지 + 상품상세**를 자동으로 캡처하는 웹앱입니다.
 
 ---
 
 ## 주요 기능
 
-- URL 최대 3개 동시 처리
-- 대표이미지 원본 수집 (500×500 JPG 리사이즈)
-- 대표이미지 개별 선택 후 다운로드
-- 상품상세 전체 캡처 (특장점 · 텍스트 · FAQ · 유의사항 · 스펙 포함)
-- 상품별 ZIP 개별 다운로드 / 전체 합치기 ZIP 다운로드
-- 초기화 버튼으로 빠른 재사용
-
-## 캡처 영역
-
-| 영역 | 설명 |
-|---|---|
-| feature-benefit | 특징 / 혜택 |
-| textbox-simple | 텍스트 설명 |
-| FAQ | 전체 펼침 |
-| itm-notice | 구매 유의사항 |
-| spec-all | 스펙 (AJAX 로드 후 펼침) |
+- URL 최대 3개 동시 처리 (Chrome 1회 시작으로 빠르게 처리)
+- 상품상세 캡처 (특장점 · FAQ 전체 펼침 · 스펙 자동 로딩 · 구매 유의사항)
+- 스펙 탭별 개별 캡처 — 탭이 여러 개인 상품은 탭마다 클릭 후 세로 합체 (옵션)
+- 대표이미지 500×500 JPG 다운로드 (체크박스로 원하는 이미지만 선택)
+- 상품명으로 폴더/파일명 자동 생성
+- 개별 ZIP · 전체 합치기 ZIP 다운로드
+- 초기화 버튼으로 새 작업 즉시 시작
 
 ---
 
-## 로컬 실행 (VS Code)
+## 결과물 구조
+
+```
+상품명.zip
+└── 상품명/
+    ├── 상품명_상품상세.png
+    ├── 상품명_스펙.png       ← 스펙 탭별 캡처 옵션 사용 시
+    └── 01_이미지명.jpg
+    └── 02_이미지명.jpg
+```
+
+---
+
+## 로컬 실행
 
 ```bash
-# 패키지 설치 (최초 1회)
+# 1. 패키지 설치
 pip install selenium pillow
 
-# 실행
+# 2. 실행 (터미널 입력 방식)
 python capture_test.py
-```
 
-Chrome 브라우저가 설치되어 있어야 합니다.  
-ChromeDriver는 selenium 4.x에서 자동 설치됩니다.
-
----
-
-## 웹앱 로컬 실행 (Streamlit)
-
-```bash
-pip install streamlit selenium pillow
+# 3. 웹앱 실행
+pip install streamlit
 streamlit run app.py
 ```
+
+> Chrome 브라우저가 설치되어 있어야 합니다.  
+> ChromeDriver는 selenium 4.x에서 자동 설치됩니다.
 
 ---
 
@@ -55,28 +54,27 @@ streamlit run app.py
 2. [share.streamlit.io](https://share.streamlit.io) → New app
 3. 리포지토리 선택 → Main file: `app.py` → Deploy
 
+> `packages.txt`로 시스템 chromium을 자동 설치합니다.
+
 ---
 
-## 파일 구조
+## 파일 구성
 
-```
-app.py              ← Streamlit 웹앱
-capture_core.py     ← 핵심 캡처 로직 (selenium 기반)
-capture_test.py     ← VS Code 로컬 실행용
-requirements.txt    ← streamlit / selenium / pillow
-packages.txt        ← Streamlit Cloud 시스템 패키지 (chromium)
-runtime.txt         ← Python 버전 지정
-.streamlit/
-└── config.toml
-```
+| 파일 | 설명 |
+|---|---|
+| `app.py` | Streamlit 웹앱 |
+| `capture_core.py` | 캡처 핵심 로직 (selenium) |
+| `capture_test.py` | VS Code 로컬 실행용 |
+| `requirements.txt` | Python 패키지 |
+| `packages.txt` | 시스템 패키지 (chromium) |
+| `runtime.txt` | Python 버전 지정 |
 
-## 결과물 구조
+---
 
-```
-상품명_상품상세.png          ← 상품상세 캡처
-상품명/
-├── 01_이미지명.jpg          ← 대표이미지 (500×500 JPG)
-├── 02_이미지명.jpg
-└── ...
-samsung_capture_all.zip    ← 전체 합치기 (2개 이상 시)
-```
+## 옵션
+
+| 옵션 | 기본값 | 설명 |
+|---|---|---|
+| 캡처 너비 | 768px | 768 / 1000 / 1280px 선택 |
+| 페이지 대기 시간 | 3초 | 느린 페이지는 5~8초 권장 |
+| 스펙 탭별 개별 캡처 | 해제 | 탭이 여러 개인 상품에만 체크 |
