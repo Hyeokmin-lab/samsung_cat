@@ -24,8 +24,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── session_state 초기화 ──────────────────────────────────────
-if "results" not in st.session_state: st.session_state.results = {}
-if "running" not in st.session_state: st.session_state.running = False
+if "results"     not in st.session_state: st.session_state.results     = {}
+if "running"     not in st.session_state: st.session_state.running     = False
+if "reset_count" not in st.session_state: st.session_state.reset_count = 0
 
 # ── 헤더 + 초기화 버튼 ───────────────────────────────────────
 col_title, col_reset = st.columns([5, 1])
@@ -35,13 +36,15 @@ with col_title:
 with col_reset:
     st.write(""); st.write("")
     if st.session_state.get("results") and st.button("🔄 초기화", use_container_width=True):
-        # session_state 전체 초기화 (URL 입력값 포함)
+        count = st.session_state.get("reset_count", 0) + 1
         st.session_state.clear()
+        st.session_state.reset_count = count  # 폼 key 변경용
         st.rerun()
 st.divider()
 
 # ── 입력 폼 ──────────────────────────────────────────────────
-with st.form("capture_form"):
+_form_key = f"capture_form_{st.session_state.get('reset_count', 0)}"
+with st.form(_form_key):
     url1 = st.text_input("상품 URL 1", placeholder="https://www.samsung.com/sec/...", key="input_url1")
     url2 = st.text_input("상품 URL 2 (선택)", placeholder="https://www.samsung.com/sec/...", key="input_url2")
     url3 = st.text_input("상품 URL 3 (선택)", placeholder="https://www.samsung.com/sec/...", key="input_url3")
