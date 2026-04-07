@@ -17,9 +17,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 
-WIDTH      = 768
-WAIT_SEC   = 3
-MULTI_SPEC = False   # True 일 때만 탭별 스펙 캡처 실행
+WIDTH    = 768
+WAIT_SEC = 3
 
 FAQ_FULL_SELECTORS = [
     "div.wrap-component.feature-benefit",
@@ -229,8 +228,8 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 break
         time.sleep(0.5)
 
-        # 탭이 2개 이상이고 MULTI_SPEC 옵션이 켜진 경우에만 탭별 캡처
-        if len(spec_tabs) >= 2 and MULTI_SPEC:
+        # 탭이 2개 이상이면 탭별 캡처
+        if len(spec_tabs) >= 2:
             log(f"📋 탭별 스펙 캡처 ({len(spec_tabs)}개 탭)...")
             tab_imgs = []
 
@@ -437,13 +436,24 @@ def run_capture_multi(urls: list, log=print) -> list:
     return results
 
 
+def _to_jpg(png_bytes: bytes, quality: int = 90) -> bytes:
+    """PNG bytes → JPG bytes 변환"""
+    buf = io.BytesIO()
+    PILImage.open(io.BytesIO(png_bytes)).convert("RGB").save(buf, "JPEG", quality=quality)
+    return buf.getvalue()
+
+
 def make_zip(product_name: str, detail_png: bytes, images: list, spec_png: bytes = None) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         if detail_png:
-            zf.writestr(f"{product_name}_상품상세.png", detail_png)
+            zf.writestr(f"{product_name}_상품상세.jpg", _to_jpg(detail_png))
         if spec_png:
-            zf.writestr(f"{product_name}_스펙.png", spec_png)
+            zf.writestr(f"{product_name}_스펙.jpg", _to_jpg(spec_png))
         for img in images:
-            zf.writestr(f"{product_name}/{img['filename']}", img["data"])
+            # 대표이미지는 이미 JPG지만 확장자 보정
+            fname = img["filename"]
+            if not fname.lower().endswith(".jpg"):
+                fname = fname.rsplit(".", 1)[0] + ".jpg"
+            zf.writestr(f"{product_name}/{fname}", img["data"])
     return buf.getvalue()
