@@ -55,7 +55,6 @@ with st.form("capture_form"):
     with col2:
         wait_sec = st.selectbox("페이지 대기 시간", [3, 4, 5, 6, 8, 10], index=0,
                                 format_func=lambda x: f"{x}초")
-    multi_spec = st.checkbox("스펙 탭별 개별 캡처 (탭이 여러 개인 상품에 사용)", value=False)
     submitted = st.form_submit_button("🚀 캡처 시작", type="primary", use_container_width=True)
 
 # ── 캡처 시작 ─────────────────────────────────────────────────
@@ -72,15 +71,13 @@ if submitted and not st.session_state.running:
         st.session_state.urls_to_process  = urls
         st.session_state.width            = width
         st.session_state.wait_sec         = wait_sec
-        st.session_state.multi_spec       = multi_spec
         st.rerun()
 
 # ── 전체 URL 일괄 처리 (Chrome 1회 시작) ────────────────────
 if st.session_state.running:
     import capture_core
-    capture_core.WIDTH      = st.session_state.get("width", 768)
-    capture_core.WAIT_SEC   = st.session_state.get("wait_sec", 3)
-    capture_core.MULTI_SPEC = st.session_state.get("multi_spec", False)
+    capture_core.WIDTH    = st.session_state.get("width", 768)
+    capture_core.WAIT_SEC = st.session_state.get("wait_sec", 3)
 
     urls = st.session_state.get("urls_to_process", [])
 
@@ -137,15 +134,14 @@ def show_result(idx, url, result):
             )
 
     def chk_key(i): return f"chk_{idx}_{url[-20:]}_{i}"
-    zip_key = f"zip_{idx}_{url[-20:]}"
 
     if images:
+        # 초기값 설정 (최초 1회)
         init_key = f"init_{idx}_{url[-20:]}"
         if init_key not in st.session_state:
             for i in range(len(images)):
                 st.session_state[chk_key(i)] = False
             st.session_state[init_key] = True
-            st.session_state[zip_key] = None  # ZIP 캐시 초기화
 
         with st.expander(f"📷 대표이미지 선택 ({len(images)}장)", expanded=True):
             bc1, bc2, _ = st.columns([1, 1, 4])
@@ -153,32 +149,24 @@ def show_result(idx, url, result):
                 if st.button("전체 선택", key=f"all_{idx}_{url[-20:]}", use_container_width=True):
                     for i in range(len(images)):
                         st.session_state[chk_key(i)] = True
-                    st.session_state[zip_key] = None  # 선택 변경 시 ZIP 캐시 무효화
             with bc2:
                 if st.button("전체 해제", key=f"none_{idx}_{url[-20:]}", use_container_width=True):
                     for i in range(len(images)):
                         st.session_state[chk_key(i)] = False
-                    st.session_state[zip_key] = None  # 선택 변경 시 ZIP 캐시 무효화
 
             st.markdown("---")
             cols = st.columns(min(len(images), 4))
-            prev_vals = [st.session_state.get(chk_key(i), False) for i in range(len(images))]
             for i, img in enumerate(images):
                 with cols[i % 4]:
                     st.image(img["data"], use_column_width=True)
                     st.checkbox(img["filename"], key=chk_key(i))
-            # 체크박스 변경 감지 → ZIP 캐시 무효화
-            new_vals = [st.session_state.get(chk_key(i), False) for i in range(len(images))]
-            if new_vals != prev_vals:
-                st.session_state[zip_key] = None
 
+    # 현재 체크박스 상태로 선택된 이미지 목록 생성
     sel_images = [img for i, img in enumerate(images)
                   if st.session_state.get(chk_key(i), False)]
 
-    # ZIP을 캐시에 없을 때만 생성
-    if st.session_state.get(zip_key) is None:
-        st.session_state[zip_key] = make_zip(product_name, detail_png, sel_images, spec_png)
-    zip_data = st.session_state[zip_key]
+    # 매번 현재 선택값으로 ZIP 생성 (캐시 제거 — 캐시가 오히려 오작동 원인)
+    zip_data = make_zip(product_name, detail_png, sel_images, spec_png)
 
     st.download_button(
         label=f"📦 {product_name}.zip — 상품상세 + 대표이미지 {len(sel_images)}장 ({len(zip_data)//1024} KB)",
