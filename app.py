@@ -45,9 +45,10 @@ st.divider()
 # ── 입력 폼 ──────────────────────────────────────────────────
 _form_key = f"capture_form_{st.session_state.get('reset_count', 0)}"
 with st.form(_form_key):
-    url1 = st.text_input("상품 URL 1", placeholder="https://www.samsung.com/sec/...", key="input_url1")
-    url2 = st.text_input("상품 URL 2 (선택)", placeholder="https://www.samsung.com/sec/...", key="input_url2")
-    url3 = st.text_input("상품 URL 3 (선택)", placeholder="https://www.samsung.com/sec/...", key="input_url3")
+    _rc = st.session_state.get("reset_count", 0)
+    url1 = st.text_input("상품 URL 1", placeholder="https://www.samsung.com/sec/...", key=f"input_url1_{_rc}")
+    url2 = st.text_input("상품 URL 2 (선택)", placeholder="https://www.samsung.com/sec/...", key=f"input_url2_{_rc}")
+    url3 = st.text_input("상품 URL 3 (선택)", placeholder="https://www.samsung.com/sec/...", key=f"input_url3_{_rc}")
     col1, col2 = st.columns(2)
     with col1:
         width = st.selectbox("캡처 너비", [768, 1000, 1280], index=0,
