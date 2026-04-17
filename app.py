@@ -42,13 +42,34 @@ with col_reset:
         st.rerun()
 st.divider()
 
+# ── Ctrl+Enter 단축키 JS ─────────────────────────────────────
+st.markdown("""
+<script>
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'Enter') {
+        // Streamlit form submit 버튼 클릭
+        const btns = window.parent.document.querySelectorAll('button[kind="primaryFormSubmit"]');
+        if (btns.length > 0) { btns[btns.length - 1].click(); return; }
+        const allBtns = window.parent.document.querySelectorAll('button');
+        for (const btn of allBtns) {
+            if (btn.innerText.includes('캡처 시작')) { btn.click(); break; }
+        }
+    }
+});
+</script>
+""", unsafe_allow_html=True)
+
 # ── 입력 폼 ──────────────────────────────────────────────────
 _form_key = f"capture_form_{st.session_state.get('reset_count', 0)}"
+_rc       = st.session_state.get("reset_count", 0)
+
 with st.form(_form_key):
-    _rc = st.session_state.get("reset_count", 0)
-    url1 = st.text_input("상품 URL 1", placeholder="https://www.samsung.com/sec/...", key=f"input_url1_{_rc}")
-    url2 = st.text_input("상품 URL 2 (선택)", placeholder="https://www.samsung.com/sec/...", key=f"input_url2_{_rc}")
-    url3 = st.text_input("상품 URL 3 (선택)", placeholder="https://www.samsung.com/sec/...", key=f"input_url3_{_rc}")
+    url_input = st.text_area(
+        "상품 URL (줄바꿈으로 여러 개 입력, Ctrl+Enter로 시작)",
+        placeholder="https://www.samsung.com/sec/...\nhttps://www.samsung.com/sec/...\nhttps://www.samsung.com/sec/...",
+        height=120,
+        key=f"input_urls_{_rc}",
+    )
     col1, col2 = st.columns(2)
     with col1:
         width = st.selectbox("캡처 너비", [768, 1000, 1280], index=0,
@@ -61,8 +82,9 @@ with st.form(_form_key):
 
 # ── 캡처 시작 ─────────────────────────────────────────────────
 if submitted and not st.session_state.running:
-    urls    = [u.strip() for u in [url1, url2, url3] if u.strip().startswith("http")]
-    invalid = [u.strip() for u in [url1, url2, url3] if u.strip() and not u.strip().startswith("http")]
+    raw_lines = [u.strip() for u in url_input.splitlines() if u.strip()]
+    urls      = [u for u in raw_lines if u.startswith("http")]
+    invalid   = [u for u in raw_lines if not u.startswith("http")]
     if invalid:
         st.warning(f"⚠️  올바르지 않은 URL 제외: {', '.join(invalid)}")
     if not urls:
