@@ -18,14 +18,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 
 WIDTH    = 768
-WAIT_SEC = 3
+WAIT_SEC = 2
 
 FAQ_FULL_SELECTORS = [
     "div.wrap-component.feature-benefit",
     "div.wrap-component.textbox-simple",
-    "div.wrap-component.visual-benefit",   # 이 상품 유형 추가
-    "div.wrap-component.keyfeature",       # 이 상품 유형 추가
-    "div.wrap-component.img-benefit",      # 이 상품 유형 추가
     "section.faqWrap",
     "div.itm-notice",
     "#compGoodsSpec",
@@ -176,10 +173,8 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
 
         # 2. 상품명 추출
         product_name = driver.execute_script("""
-            const sels=[
-                '#compGoodRevampFeaturesName h2.prod-name','#compGoodRevampFeaturesName h2',
-                'h2.prod-name','.prod-name','h1.prod-title','.product-title h1','.pdp-title h2','h1'
-            ];
+            const sels=['#compGoodRevampFeaturesName h2.prod-name','#compGoodRevampFeaturesName h2',
+                        'h2.prod-name','.prod-name','h1.prod-title','h1'];
             for(const s of sels){const el=document.querySelector(s);if(el&&el.textContent.trim())return el.textContent.trim();}
             const og=document.querySelector('meta[property="og:title"]');
             if(og) return og.content.split('|')[0].trim();
@@ -192,29 +187,10 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
         # 3. 대표이미지 URL 수집
         log("🖼️  대표이미지 URL 추출 중...")
         imgs = driver.execute_script("""
-            // 1순위: 모달 갤러리
-            const modal = document.querySelectorAll('.modal-gallery-item img, .modal-gallery-list img');
-            if (modal.length > 0) return Array.from(modal).map((img,i) => ({
-                src: img.getAttribute('src') || img.src, alt: img.alt || '', seq: img.dataset.seq || String(i+1)
-            }));
-            // 2순위: data-img-tp 속성 / .gallery-list
-            const thumb = document.querySelectorAll('img[data-img-tp], .gallery-list img');
-            if (thumb.length > 0) return Array.from(thumb).map((img,i) => {
-                let src = (img.getAttribute('src') || img.src).split('?')[0];
-                return {src, alt: img.alt || '', seq: img.dataset.seq || String(i+1)};
-            });
-            // 3순위: images.samsung.com 도메인 img — kdp/goods 경로 포함 (이 상품 유형)
-            const all = document.querySelectorAll('img[src*="images.samsung.com"][src*="kdp/goods"]');
-            const seen = new Set();
-            const result = [];
-            Array.from(all).forEach((img, i) => {
-                let src = (img.getAttribute('src') || img.src).split('?')[0];
-                if (!seen.has(src) && src) {
-                    seen.add(src);
-                    result.push({src, alt: img.alt || '', seq: String(result.length + 1)});
-                }
-            });
-            return result;
+            const modal=document.querySelectorAll('.modal-gallery-item img,.modal-gallery-list img');
+            if(modal.length>0) return Array.from(modal).map((img,i)=>({src:img.getAttribute('src')||img.src,alt:img.alt||'',seq:img.dataset.seq||String(i+1)}));
+            const thumb=document.querySelectorAll('img[data-img-tp],.gallery-list img');
+            return Array.from(thumb).map((img,i)=>{let src=(img.getAttribute('src')||img.src).split('?')[0];return{src,alt:img.alt||'',seq:img.dataset.seq||String(i+1)};});
         """)
         log(f"   → {len(imgs)}개 발견")
 
@@ -227,30 +203,30 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 if(pos>=document.body.scrollHeight){clearInterval(id);window.scrollTo(0,0);resolve();}},100);
             });
         """)
-        time.sleep(1.2)
+        time.sleep(0.7)
 
         # 5. FAQ 펼치기
         log("📖 FAQ 펼치는 중...")
         driver.execute_script(JS_EXPAND_FAQ)
-        time.sleep(0.6)
+        time.sleep(0.3)
 
         # 6. 스펙 섹션 로딩
         log("📊 스펙 로딩 중...")
         driver.execute_script(JS_CLICK_SPEC_TAB)
-        time.sleep(1.5)
+        time.sleep(1.0)
         driver.execute_script(JS_EXPAND_SPEC)
 
         # 첫 번째 탭 로드 대기
         spec_tabs = []
-        for i in range(10):
-            time.sleep(0.8)
+        for i in range(12):
+            time.sleep(0.5)
             check = driver.execute_script(JS_SPEC_CHECK)
             log(f"   로드 대기 {i+1}회 (len={check.get('len',0)})")
             if check.get("len", 0) > 100:
                 spec_tabs = check.get("tabs", [])
                 log(f"   → 완료! 탭 {len(spec_tabs)}개: {[t['text'] for t in spec_tabs]}")
                 break
-        time.sleep(0.5)
+        time.sleep(0.2)
 
         # 탭이 2개 이상이면 탭별 캡처
         if len(spec_tabs) >= 2:
@@ -347,7 +323,7 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 log(f"   → {len(tab_imgs)}개 탭 합체: {max_w}x{total_h}px")
 
         driver.execute_script("window.scrollTo(0,0)")
-        time.sleep(0.3)
+        time.sleep(0.2)
 
         # 7. 영역 측정 + 캡처
         log("📸 상세 캡처 중...")
@@ -379,7 +355,7 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
             }
             full_h = driver.execute_script("return document.body.scrollHeight")
             driver.set_window_size(WIDTH, full_h)
-            time.sleep(0.5)
+            time.sleep(0.3)
             raw = driver.get_screenshot_as_png()
             img_full = PILImage.open(io.BytesIO(raw))
             iw, ih = img_full.size
@@ -390,61 +366,33 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
             result["detail_png"] = buf.getvalue()
             log(f"   → {x2-x1}x{y2-y1}px 완료")
         else:
-            # 주요 콘텐츠 영역 폴백 시도 (#container, main, .pdp-content 등)
-            fallback_box = driver.execute_script("""
-                const candidates = [
-                    '#container', 'main', '.pdp-content',
-                    '.product-detail', '#compArea', '.comp-wrap'
-                ];
-                for (const sel of candidates) {
-                    const el = document.querySelector(sel);
-                    if (el && el.scrollHeight > 300) {
-                        const r = el.getBoundingClientRect();
-                        return {
-                            top:    Math.round(r.top + window.scrollY),
-                            left:   Math.round(r.left),
-                            width:  Math.round(r.width),
-                            height: Math.max(Math.round(r.height), el.scrollHeight)
-                        };
-                    }
-                }
-                return null;
-            """)
-            if fallback_box and fallback_box["height"] > 300:
-                full_h = driver.execute_script("return document.body.scrollHeight")
-                driver.set_window_size(WIDTH, full_h)
-                time.sleep(0.5)
-                raw = driver.get_screenshot_as_png()
-                img_full = PILImage.open(io.BytesIO(raw))
-                iw, ih = img_full.size
-                x1 = max(0, fallback_box["left"])
-                y1 = max(0, fallback_box["top"])
-                x2 = min(iw, fallback_box["left"] + fallback_box["width"])
-                y2 = min(ih, fallback_box["top"]  + fallback_box["height"])
-                buf = io.BytesIO()
-                img_full.crop((x1, y1, x2, y2)).save(buf, "PNG")
-                result["detail_png"] = buf.getvalue()
-                log(f"   → 폴백 영역 캡처 완료 ({x2-x1}x{y2-y1}px)")
-            else:
-                log("⚠️  영역 미발견 → 전체 페이지 캡처")
-                result["detail_png"] = driver.get_screenshot_as_png()
+            log("⚠️  영역 미발견 → 전체 페이지 캡처")
+            result["detail_png"] = driver.get_screenshot_as_png()
 
     except Exception as e:
         result["error"] = str(e)
         log(f"❌ 오류: {e}")
 
-    # 8. 대표이미지 다운로드 (브라우저 불필요)
+    # 8. 대표이미지 병렬 다운로드
     if not result["error"] and imgs:
-        log(f"⬇️  대표이미지 다운로드 ({len(imgs)}개)...")
+        import concurrent.futures
+        log(f"⬇️  대표이미지 병렬 다운로드 ({len(imgs)}개)...")
         headers = {"User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/120.0.0.0", "Referer": url}
-        seen = set(); idx = 1
-        for img in imgs:
+
+        # 중복 제거 + URL 정규화
+        seen = set()
+        tasks = []
+        for i, img in enumerate(imgs):
             src = img["src"]
             if not src or src in seen: continue
             seen.add(src)
             if src.startswith("//"): src = "https:" + src
             elif src.startswith("/"): src = "https://www.samsung.com" + src
-            fname = f"{idx:02d}_{sanitize(img['alt'][:15]) or 'img'}.jpg"
+            fname = f"{len(tasks)+1:02d}_{sanitize(img['alt'][:15]) or 'img'}.jpg"
+            tasks.append((src, fname))
+
+        def _download(args):
+            src, fname = args
             try:
                 req = urllib.request.Request(src, headers=headers)
                 with urllib.request.urlopen(req, timeout=15) as resp:
@@ -453,12 +401,27 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 _im = _im.resize((500, 500), PILImage.LANCZOS)
                 _buf = io.BytesIO()
                 _im.save(_buf, "JPEG", quality=90)
-                result["images"].append({"filename": fname, "data": _buf.getvalue()})
-                log(f"   [{idx:02d}] ✅ {fname} ({_buf.tell()//1024}KB)")
-                idx += 1
+                return fname, _buf.getvalue(), None
             except Exception as e:
-                log(f"   [{idx:02d}] ❌ {e}")
-                idx += 1
+                return fname, None, str(e)
+
+        # 최대 5개 스레드로 병렬 다운로드
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
+            futures = {ex.submit(_download, t): t for t in tasks}
+            ordered = {}
+            for f in concurrent.futures.as_completed(futures):
+                fname, data, err = f.result()
+                if err:
+                    log(f"   ❌ {fname}: {err}")
+                else:
+                    ordered[fname] = data
+                    log(f"   ✅ {fname} ({len(data)//1024}KB)")
+
+        # 파일명 순서대로 정렬
+        for src, fname in tasks:
+            if fname in ordered:
+                result["images"].append({"filename": fname, "data": ordered[fname]})
+
         log(f"✅ 완료! 대표이미지 {len(result['images'])}개")
 
     return result
