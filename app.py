@@ -32,7 +32,7 @@ if "reset_count" not in st.session_state: st.session_state.reset_count = 0
 col_title, col_reset = st.columns([5, 1])
 with col_title:
     st.title("📸 Samsung 상품 캡처")
-    st.caption("URL을 최대 3개까지 입력하면 대표이미지 + 상품상세를 자동으로 캡처합니다.")
+    st.caption("URL을 줄바꿈으로 구분해서 입력하면 대표이미지 + 상품상세를 자동으로 캡처합니다.")
 with col_reset:
     st.write(""); st.write("")
     if st.session_state.get("results") and st.button("🔄 초기화", use_container_width=True):
@@ -46,9 +46,12 @@ st.divider()
 _form_key = f"capture_form_{st.session_state.get('reset_count', 0)}"
 with st.form(_form_key):
     _rc = st.session_state.get("reset_count", 0)
-    url1 = st.text_input("상품 URL 1", placeholder="https://www.samsung.com/sec/...", key=f"input_url1_{_rc}")
-    url2 = st.text_input("상품 URL 2 (선택)", placeholder="https://www.samsung.com/sec/...", key=f"input_url2_{_rc}")
-    url3 = st.text_input("상품 URL 3 (선택)", placeholder="https://www.samsung.com/sec/...", key=f"input_url3_{_rc}")
+    url_input = st.text_area(
+        "상품 URL (줄바꿈으로 여러 개 입력 · Ctrl+Enter로 시작)",
+        placeholder="https://www.samsung.com/sec/...\nhttps://www.samsung.com/sec/...\nhttps://www.samsung.com/sec/...",
+        height=120,
+        key=f"input_urls_{_rc}",
+    )
     col1, col2 = st.columns(2)
     with col1:
         width = st.selectbox("캡처 너비", [768, 1000, 1280], index=0,
@@ -61,8 +64,9 @@ with st.form(_form_key):
 
 # ── 캡처 시작 ─────────────────────────────────────────────────
 if submitted and not st.session_state.running:
-    urls    = [u.strip() for u in [url1, url2, url3] if u.strip().startswith("http")]
-    invalid = [u.strip() for u in [url1, url2, url3] if u.strip() and not u.strip().startswith("http")]
+    raw_lines = [u.strip() for u in url_input.splitlines() if u.strip()]
+    urls      = [u for u in raw_lines if u.startswith("http")]
+    invalid   = [u for u in raw_lines if not u.startswith("http")]
     if invalid:
         st.warning(f"⚠️  올바르지 않은 URL 제외: {', '.join(invalid)}")
     if not urls:
