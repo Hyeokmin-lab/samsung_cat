@@ -18,7 +18,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 
 WIDTH    = 768
-WAIT_SEC = 2
+WAIT_SEC = 3
 
 FAQ_FULL_SELECTORS = [
     "div.wrap-component.feature-benefit",
@@ -203,30 +203,30 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 if(pos>=document.body.scrollHeight){clearInterval(id);window.scrollTo(0,0);resolve();}},100);
             });
         """)
-        time.sleep(0.7)
+        time.sleep(1.2)
 
         # 5. FAQ 펼치기
         log("📖 FAQ 펼치는 중...")
         driver.execute_script(JS_EXPAND_FAQ)
-        time.sleep(0.3)
+        time.sleep(0.6)
 
         # 6. 스펙 섹션 로딩
         log("📊 스펙 로딩 중...")
         driver.execute_script(JS_CLICK_SPEC_TAB)
-        time.sleep(1.0)
+        time.sleep(1.5)
         driver.execute_script(JS_EXPAND_SPEC)
 
         # 첫 번째 탭 로드 대기
         spec_tabs = []
-        for i in range(12):
-            time.sleep(0.5)
+        for i in range(10):
+            time.sleep(0.8)
             check = driver.execute_script(JS_SPEC_CHECK)
             log(f"   로드 대기 {i+1}회 (len={check.get('len',0)})")
             if check.get("len", 0) > 100:
                 spec_tabs = check.get("tabs", [])
                 log(f"   → 완료! 탭 {len(spec_tabs)}개: {[t['text'] for t in spec_tabs]}")
                 break
-        time.sleep(0.2)
+        time.sleep(0.5)
 
         # 탭이 2개 이상이면 탭별 캡처
         if len(spec_tabs) >= 2:
@@ -323,7 +323,7 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 log(f"   → {len(tab_imgs)}개 탭 합체: {max_w}x{total_h}px")
 
         driver.execute_script("window.scrollTo(0,0)")
-        time.sleep(0.2)
+        time.sleep(0.3)
 
         # 7. 영역 측정 + 캡처
         log("📸 상세 캡처 중...")
@@ -355,7 +355,7 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
             }
             full_h = driver.execute_script("return document.body.scrollHeight")
             driver.set_window_size(WIDTH, full_h)
-            time.sleep(0.3)
+            time.sleep(0.5)
             raw = driver.get_screenshot_as_png()
             img_full = PILImage.open(io.BytesIO(raw))
             iw, ih = img_full.size
@@ -373,26 +373,18 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
         result["error"] = str(e)
         log(f"❌ 오류: {e}")
 
-    # 8. 대표이미지 병렬 다운로드
+    # 8. 대표이미지 다운로드 (브라우저 불필요)
     if not result["error"] and imgs:
-        import concurrent.futures
-        log(f"⬇️  대표이미지 병렬 다운로드 ({len(imgs)}개)...")
+        log(f"⬇️  대표이미지 다운로드 ({len(imgs)}개)...")
         headers = {"User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/120.0.0.0", "Referer": url}
-
-        # 중복 제거 + URL 정규화
-        seen = set()
-        tasks = []
-        for i, img in enumerate(imgs):
+        seen = set(); idx = 1
+        for img in imgs:
             src = img["src"]
             if not src or src in seen: continue
             seen.add(src)
             if src.startswith("//"): src = "https:" + src
             elif src.startswith("/"): src = "https://www.samsung.com" + src
-            fname = f"{len(tasks)+1:02d}_{sanitize(img['alt'][:15]) or 'img'}.jpg"
-            tasks.append((src, fname))
-
-        def _download(args):
-            src, fname = args
+            fname = f"{idx:02d}_{sanitize(img['alt'][:15]) or 'img'}.jpg"
             try:
                 req = urllib.request.Request(src, headers=headers)
                 with urllib.request.urlopen(req, timeout=15) as resp:
@@ -401,27 +393,12 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
                 _im = _im.resize((500, 500), PILImage.LANCZOS)
                 _buf = io.BytesIO()
                 _im.save(_buf, "JPEG", quality=90)
-                return fname, _buf.getvalue(), None
+                result["images"].append({"filename": fname, "data": _buf.getvalue()})
+                log(f"   [{idx:02d}] ✅ {fname} ({_buf.tell()//1024}KB)")
+                idx += 1
             except Exception as e:
-                return fname, None, str(e)
-
-        # 최대 5개 스레드로 병렬 다운로드
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
-            futures = {ex.submit(_download, t): t for t in tasks}
-            ordered = {}
-            for f in concurrent.futures.as_completed(futures):
-                fname, data, err = f.result()
-                if err:
-                    log(f"   ❌ {fname}: {err}")
-                else:
-                    ordered[fname] = data
-                    log(f"   ✅ {fname} ({len(data)//1024}KB)")
-
-        # 파일명 순서대로 정렬
-        for src, fname in tasks:
-            if fname in ordered:
-                result["images"].append({"filename": fname, "data": ordered[fname]})
-
+                log(f"   [{idx:02d}] ❌ {e}")
+                idx += 1
         log(f"✅ 완료! 대표이미지 {len(result['images'])}개")
 
     return result
