@@ -163,44 +163,12 @@ def show_result(idx, url, result):
                     for i in range(len(images)):
                         st.session_state[chk_key(i)] = False
 
-            # 이미지 카드 스타일 (선택/미선택 테두리)
-            st.markdown("""
-            <style>
-            div[data-testid="stImage"] { margin-bottom: 0 !important; }
-            .img-card button {
-                padding: 0 !important; border: none !important;
-                background: none !important; width: 100%;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-
             st.markdown("---")
-            import base64
-            n_cols = min(len(images), 4)
-            cols = st.columns(n_cols)
+            cols = st.columns(min(len(images), 4))
             for i, img in enumerate(images):
-                key      = chk_key(i)
-                selected = st.session_state.get(key, False)
-                b64      = base64.b64encode(img["data"]).decode()
-                border   = "3px solid #2563eb" if selected else "2px solid #e5e7eb"
-                badge    = "✅" if selected else "☐"
-
-                with cols[i % n_cols]:
-                    # 이미지 + 선택 뱃지를 HTML로 표시
-                    st.markdown(f"""
-                    <div style="border:{border};border-radius:8px;overflow:hidden;
-                                margin-bottom:2px;position:relative;">
-                        <img src="data:image/jpeg;base64,{b64}"
-                             style="width:100%;display:block;" />
-                        <div style="position:absolute;top:4px;right:6px;
-                                    font-size:18px;line-height:1;">{badge}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    # 이미지 바로 아래 버튼 — 클릭 시 선택 토글
-                    btn_label = f"{'✅ 선택됨' if selected else '☐ 선택'}"
-                    if st.button(btn_label, key=f"imgbtn_{idx}_{url[-20:]}_{i}",
-                                 use_container_width=True):
-                        st.session_state[key] = not selected
+                with cols[i % 4]:
+                    st.image(img["data"], use_column_width=True)
+                    st.checkbox(img["filename"], key=chk_key(i))
 
     # 선택된 대표이미지
     sel_images = [img for i, img in enumerate(images)
