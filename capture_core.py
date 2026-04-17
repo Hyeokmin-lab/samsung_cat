@@ -23,6 +23,9 @@ WAIT_SEC = 3
 FAQ_FULL_SELECTORS = [
     "div.wrap-component.feature-benefit",
     "div.wrap-component.textbox-simple",
+    "div.wrap-component.visual-benefit",   # 이 상품 유형 추가
+    "div.wrap-component.keyfeature",       # 이 상품 유형 추가
+    "div.wrap-component.img-benefit",      # 이 상품 유형 추가
     "section.faqWrap",
     "div.itm-notice",
     "#compGoodsSpec",
@@ -173,8 +176,10 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
 
         # 2. 상품명 추출
         product_name = driver.execute_script("""
-            const sels=['#compGoodRevampFeaturesName h2.prod-name','#compGoodRevampFeaturesName h2',
-                        'h2.prod-name','.prod-name','h1.prod-title','h1'];
+            const sels=[
+                '#compGoodRevampFeaturesName h2.prod-name','#compGoodRevampFeaturesName h2',
+                'h2.prod-name','.prod-name','h1.prod-title','.product-title h1','.pdp-title h2','h1'
+            ];
             for(const s of sels){const el=document.querySelector(s);if(el&&el.textContent.trim())return el.textContent.trim();}
             const og=document.querySelector('meta[property="og:title"]');
             if(og) return og.content.split('|')[0].trim();
@@ -187,10 +192,29 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
         # 3. 대표이미지 URL 수집
         log("🖼️  대표이미지 URL 추출 중...")
         imgs = driver.execute_script("""
-            const modal=document.querySelectorAll('.modal-gallery-item img,.modal-gallery-list img');
-            if(modal.length>0) return Array.from(modal).map((img,i)=>({src:img.getAttribute('src')||img.src,alt:img.alt||'',seq:img.dataset.seq||String(i+1)}));
-            const thumb=document.querySelectorAll('img[data-img-tp],.gallery-list img');
-            return Array.from(thumb).map((img,i)=>{let src=(img.getAttribute('src')||img.src).split('?')[0];return{src,alt:img.alt||'',seq:img.dataset.seq||String(i+1)};});
+            // 1순위: 모달 갤러리
+            const modal = document.querySelectorAll('.modal-gallery-item img, .modal-gallery-list img');
+            if (modal.length > 0) return Array.from(modal).map((img,i) => ({
+                src: img.getAttribute('src') || img.src, alt: img.alt || '', seq: img.dataset.seq || String(i+1)
+            }));
+            // 2순위: data-img-tp 속성 / .gallery-list
+            const thumb = document.querySelectorAll('img[data-img-tp], .gallery-list img');
+            if (thumb.length > 0) return Array.from(thumb).map((img,i) => {
+                let src = (img.getAttribute('src') || img.src).split('?')[0];
+                return {src, alt: img.alt || '', seq: img.dataset.seq || String(i+1)};
+            });
+            // 3순위: images.samsung.com 도메인 img — kdp/goods 경로 포함 (이 상품 유형)
+            const all = document.querySelectorAll('img[src*="images.samsung.com"][src*="kdp/goods"]');
+            const seen = new Set();
+            const result = [];
+            Array.from(all).forEach((img, i) => {
+                let src = (img.getAttribute('src') || img.src).split('?')[0];
+                if (!seen.has(src) && src) {
+                    seen.add(src);
+                    result.push({src, alt: img.alt || '', seq: String(result.length + 1)});
+                }
+            });
+            return result;
         """)
         log(f"   → {len(imgs)}개 발견")
 
@@ -366,8 +390,44 @@ def _capture_one(driver: webdriver.Chrome, url: str, log) -> dict:
             result["detail_png"] = buf.getvalue()
             log(f"   → {x2-x1}x{y2-y1}px 완료")
         else:
-            log("⚠️  영역 미발견 → 전체 페이지 캡처")
-            result["detail_png"] = driver.get_screenshot_as_png()
+            # 주요 콘텐츠 영역 폴백 시도 (#container, main, .pdp-content 등)
+            fallback_box = driver.execute_script("""
+                const candidates = [
+                    '#container', 'main', '.pdp-content',
+                    '.product-detail', '#compArea', '.comp-wrap'
+                ];
+                for (const sel of candidates) {
+                    const el = document.querySelector(sel);
+                    if (el && el.scrollHeight > 300) {
+                        const r = el.getBoundingClientRect();
+                        return {
+                            top:    Math.round(r.top + window.scrollY),
+                            left:   Math.round(r.left),
+                            width:  Math.round(r.width),
+                            height: Math.max(Math.round(r.height), el.scrollHeight)
+                        };
+                    }
+                }
+                return null;
+            """)
+            if fallback_box and fallback_box["height"] > 300:
+                full_h = driver.execute_script("return document.body.scrollHeight")
+                driver.set_window_size(WIDTH, full_h)
+                time.sleep(0.5)
+                raw = driver.get_screenshot_as_png()
+                img_full = PILImage.open(io.BytesIO(raw))
+                iw, ih = img_full.size
+                x1 = max(0, fallback_box["left"])
+                y1 = max(0, fallback_box["top"])
+                x2 = min(iw, fallback_box["left"] + fallback_box["width"])
+                y2 = min(ih, fallback_box["top"]  + fallback_box["height"])
+                buf = io.BytesIO()
+                img_full.crop((x1, y1, x2, y2)).save(buf, "PNG")
+                result["detail_png"] = buf.getvalue()
+                log(f"   → 폴백 영역 캡처 완료 ({x2-x1}x{y2-y1}px)")
+            else:
+                log("⚠️  영역 미발견 → 전체 페이지 캡처")
+                result["detail_png"] = driver.get_screenshot_as_png()
 
     except Exception as e:
         result["error"] = str(e)
