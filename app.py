@@ -42,34 +42,13 @@ with col_reset:
         st.rerun()
 st.divider()
 
-# ── Ctrl+Enter 단축키 JS ─────────────────────────────────────
-st.markdown("""
-<script>
-document.addEventListener('keydown', function(e) {
-    if (e.ctrlKey && e.key === 'Enter') {
-        // Streamlit form submit 버튼 클릭
-        const btns = window.parent.document.querySelectorAll('button[kind="primaryFormSubmit"]');
-        if (btns.length > 0) { btns[btns.length - 1].click(); return; }
-        const allBtns = window.parent.document.querySelectorAll('button');
-        for (const btn of allBtns) {
-            if (btn.innerText.includes('캡처 시작')) { btn.click(); break; }
-        }
-    }
-});
-</script>
-""", unsafe_allow_html=True)
-
 # ── 입력 폼 ──────────────────────────────────────────────────
 _form_key = f"capture_form_{st.session_state.get('reset_count', 0)}"
-_rc       = st.session_state.get("reset_count", 0)
-
 with st.form(_form_key):
-    url_input = st.text_area(
-        "상품 URL (줄바꿈으로 여러 개 입력, Ctrl+Enter로 시작)",
-        placeholder="https://www.samsung.com/sec/...\nhttps://www.samsung.com/sec/...\nhttps://www.samsung.com/sec/...",
-        height=120,
-        key=f"input_urls_{_rc}",
-    )
+    _rc = st.session_state.get("reset_count", 0)
+    url1 = st.text_input("상품 URL 1", placeholder="https://www.samsung.com/sec/...", key=f"input_url1_{_rc}")
+    url2 = st.text_input("상품 URL 2 (선택)", placeholder="https://www.samsung.com/sec/...", key=f"input_url2_{_rc}")
+    url3 = st.text_input("상품 URL 3 (선택)", placeholder="https://www.samsung.com/sec/...", key=f"input_url3_{_rc}")
     col1, col2 = st.columns(2)
     with col1:
         width = st.selectbox("캡처 너비", [768, 1000, 1280], index=0,
@@ -82,9 +61,8 @@ with st.form(_form_key):
 
 # ── 캡처 시작 ─────────────────────────────────────────────────
 if submitted and not st.session_state.running:
-    raw_lines = [u.strip() for u in url_input.splitlines() if u.strip()]
-    urls      = [u for u in raw_lines if u.startswith("http")]
-    invalid   = [u for u in raw_lines if not u.startswith("http")]
+    urls    = [u.strip() for u in [url1, url2, url3] if u.strip().startswith("http")]
+    invalid = [u.strip() for u in [url1, url2, url3] if u.strip() and not u.strip().startswith("http")]
     if invalid:
         st.warning(f"⚠️  올바르지 않은 URL 제외: {', '.join(invalid)}")
     if not urls:
@@ -181,12 +159,44 @@ def show_result(idx, url, result):
                     for i in range(len(images)):
                         st.session_state[chk_key(i)] = False
 
+            # 이미지 카드 스타일 (선택/미선택 테두리)
+            st.markdown("""
+            <style>
+            div[data-testid="stImage"] { margin-bottom: 0 !important; }
+            .img-card button {
+                padding: 0 !important; border: none !important;
+                background: none !important; width: 100%;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+
             st.markdown("---")
-            cols = st.columns(min(len(images), 4))
+            import base64
+            n_cols = min(len(images), 4)
+            cols = st.columns(n_cols)
             for i, img in enumerate(images):
-                with cols[i % 4]:
-                    st.image(img["data"], use_column_width=True)
-                    st.checkbox(img["filename"], key=chk_key(i))
+                key      = chk_key(i)
+                selected = st.session_state.get(key, False)
+                b64      = base64.b64encode(img["data"]).decode()
+                border   = "3px solid #2563eb" if selected else "2px solid #e5e7eb"
+                badge    = "✅" if selected else "☐"
+
+                with cols[i % n_cols]:
+                    # 이미지 + 선택 뱃지를 HTML로 표시
+                    st.markdown(f"""
+                    <div style="border:{border};border-radius:8px;overflow:hidden;
+                                margin-bottom:2px;position:relative;">
+                        <img src="data:image/jpeg;base64,{b64}"
+                             style="width:100%;display:block;" />
+                        <div style="position:absolute;top:4px;right:6px;
+                                    font-size:18px;line-height:1;">{badge}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    # 이미지 바로 아래 버튼 — 클릭 시 선택 토글
+                    btn_label = f"{'✅ 선택됨' if selected else '☐ 선택'}"
+                    if st.button(btn_label, key=f"imgbtn_{idx}_{url[-20:]}_{i}",
+                                 use_container_width=True):
+                        st.session_state[key] = not selected
 
     # 선택된 대표이미지
     sel_images = [img for i, img in enumerate(images)
